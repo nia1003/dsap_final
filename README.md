@@ -6,9 +6,16 @@
 
 <!-- 說明為什麼想做這個專題 -->
 
-專注力管理、習慣養成與數位自控已不是小眾需求，而是穩定成長的產品類別。Business of Apps 2025 年的統計指出，整體 productivity 類 app 在 2024 年創造超過 **120 億美元**收入，代表市場對時間管理與效率工具的需求非常穩定。
+專注力管理、習慣養成與數位自控已不是小眾需求，而是穩定成長的產品類別。Business of Apps 統計指出，整體 productivity 類 app 在 2024 年創造超過 **325 億美元**收入，預計以年均 9% 的 CAGR 持續成長 \[1\]。其中番茄鐘類應用（Pomodoro Apps）市場在 2024 年達到 **4.285 億美元**，2025–2033 年 CAGR 預估達 **12.7%** \[2\]，顯示使用者對結構化專注工具的需求正在快速擴張。
 
-然而，需求穩定不代表使用者滿意——多數工具的 30 天留存率仍低於 15%。問題不在於工具不夠多，而在於現有工具只解決「開始計時」，卻沒有處理**為什麼人會在計時中放棄、以及如何讓人想繼續回來**。
+**然而，需求成長不代表使用者滿意。** 研究顯示：
+
+- 美國人平均每天查看手機 **205 次**（較前年增加 42.3%），每日手機使用時間達 **4.5 小時** \[3\]
+- 人類在螢幕前的平均專注時長已從 2004 年的 **2 分鐘以上**下滑至 2024 年的 **47 秒** \[4\]
+- **42% 的知識工作者**表示無法連續專注超過一小時，美國企業每年因分心損失高達 **4,680 億美元** \[3\]
+- 76% 的人會在收到手機通知後 **5 分鐘內回覆**，嚴重打斷深度工作 \[4\]
+
+問題不在於工具不夠多，而在於現有工具只解決「開始計時」，卻沒有處理**為什麼人會在計時中放棄、以及如何讓人想繼續回來**。多數工具的 30 天留存率仍低於 15%，代表使用者買單後很快就流失。
 
 **目標族群：**
 - 大學生、研究生（有自主學習需求）
@@ -267,23 +274,23 @@ getTopDistractions: () => {
 
 <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start;">
   <div style="text-align:center">
-    <img src="src/screen-welcome.jpg" width="480"/><br/>
+    <img src="src/screen-welcome.jpg" width="180"/><br/>
     <small>1. Welcome</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-signup.jpg" width="480"/><br/>
+    <img src="src/screen-signup.jpg" width="180"/><br/>
     <small>2. Create account</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-profile.jpg" width="480"/><br/>
+    <img src="src/screen-profile.jpg" width="180"/><br/>
     <small>3. Tell us about you</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-pet.jpg" width="480"/><br/>
+    <img src="src/screen-pet.jpg" width="180"/><br/>
     <small>4. Pick your starter</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-consent.jpg" width="480"/><br/>
+    <img src="src/screen-consent.jpg" width="180"/><br/>
     <small>5. A few quick things</small>
   </div>
 </div>
@@ -292,7 +299,7 @@ getTopDistractions: () => {
 
 <div style="display:flex; flex-wrap:wrap; gap:16px; justify-content:center;">
   <div style="text-align:center">
-    <img src="src/screen-foucs_section.jpg" width="480"/><br/>
+    <img src="src/screen-foucs_section.jpg" width="180"/><br/>
     <small>Home — 寵物狀態 ＋ 開始專注</small>
   </div>
   <div style="text-align:center">
@@ -300,15 +307,15 @@ getTopDistractions: () => {
     <small>Farm — 寵物詳情 ＋ 7 天專注圖</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-analysis.jpg" width="480"/><br/>
+    <img src="src/screen-analysis.jpg" width="180"/><br/>
     <small>Stats — 專注統計 ＋ 分心原因</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-missions.jpg" width="480"/><br/>
+    <img src="src/screen-missions.jpg" width="180"/><br/>
     <small>Missions — 任務列表 ＋ XP 獎勵</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-task.jpg" width="480"/><br/>
+    <img src="src/screen-task.jpg" width="180"/><br/>
     <small>Mission Detail — 計時器 ＋ 獎勵預覽</small>
   </div>
 </div>
@@ -415,7 +422,7 @@ foco-app/
 
 ### Demo 影片
 
-> YouTube 連結：等待最終成果展示補上<!-- 請貼上影片連結 -->
+> YouTube 連結：<!-- 請貼上影片連結 -->
 
 ---
 
@@ -446,3 +453,25 @@ npx expo start --clear
 2. 點選「Scan QR Code」
 3. 掃描 terminal 顯示的 QR Code
 4. App 即自動載入，支援 Hot Reload（存檔即更新）
+
+---
+
+## References
+
+\[1\] Business of Apps. (2025). *Productivity App Revenue and Usage Statistics*.
+https://www.businessofapps.com/data/productivity-app-market/
+
+\[2\] DataIntelo / Growth Market Reports. (2024). *Pomodoro Apps Market Research Report 2033*.
+https://dataintelo.com/report/pomodoro-apps-market
+
+\[3\] Harmony Healthcare IT. (2024). *American Phone Usage & Screen Time Statistics*.
+https://www.harmonyhit.com/phone-screen-time-statistics/
+
+\[4\] Speakwise. (2026). *Attention Span Statistics: Focus Duration, Digital Shrinkage, and Cognitive Decline*.
+https://speakwiseapp.com/blog/attention-span-statistics
+
+\[5\] Siebers, T., Beyens, I., & Valkenburg, P. M. (2024). The effects of fragmented and sticky smartphone use on distraction and task delay. *Mobile Media & Communication*.
+https://journals.sagepub.com/doi/10.1177/20501579231193941
+
+\[6\] Amra & Elma. (2026). *Top 20 User Attention Span Statistics*.
+https://www.amraandelma.com/user-attention-span-statistics/
