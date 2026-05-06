@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useGameStore } from '@/stores/gameStore';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { TabBar } from '@/components/layout/TabBar';
@@ -16,7 +17,8 @@ const CATS = [
 ];
 const DAYS_14 = [3, 5, 2, 6, 4, 7, 5, 4, 6, 3, 5, 7, 5, 4];
 const DMAX = Math.max(...DAYS_14);
-const DISTRACTIONS = [
+// Distraction data 改從 store 的 HashMap 讀取
+const FALLBACK_DISTRACTIONS = [
   { n: 'Phone',              v: 0.6 },
   { n: 'Wandering thoughts', v: 0.45 },
   { n: 'Tiredness',          v: 0.3 },
@@ -24,6 +26,12 @@ const DISTRACTIONS = [
 
 export default function StatsScreen() {
   const total = CATS.reduce((s, c) => s + c.v, 0);
+  const getTopDistractions = useGameStore((s) => s.getTopDistractions);
+  const topDistractions = getTopDistractions();
+  // 有真實資料就用 HashMap 結果，否則用 fallback demo 資料
+  const DISTRACTIONS = topDistractions.length > 0
+    ? topDistractions.slice(0, 5).map((d) => ({ n: d.reason, v: d.pct }))
+    : FALLBACK_DISTRACTIONS;
 
   return (
     <SafeAreaView style={styles.safe}>

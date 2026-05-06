@@ -6,10 +6,10 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet } from 'react-native';
 
 const PET_EMOJI: Record<string, string> = {
-  sprout: '🌱',
-  ember:  '🔥',
-  mist:   '🌫️',
-  pebble: '🪨',
+  cat:     '🐱',
+  bunny:   '🐰',
+  hamster: '🐹',
+  fox:     '🦊',
 };
 
 interface PetAvatarProps {
@@ -18,7 +18,7 @@ interface PetAvatarProps {
   animated?: boolean;
 }
 
-export function PetAvatar({ petKind = 'sprout', size = 200, animated: enableAnim = true }: PetAvatarProps) {
+export function PetAvatar({ petKind = 'cat', size = 200, animated: enableAnim = true }: PetAvatarProps) {
   const float = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -42,7 +42,7 @@ export function PetAvatar({ petKind = 'sprout', size = 200, animated: enableAnim
       ]}
     >
       <Text style={{ fontSize: size * 0.55, textAlign: 'center' }}>
-        {PET_EMOJI[petKind] ?? '🌱'}
+        {PET_EMOJI[petKind] ?? '🐱'}
       </Text>
     </Animated.View>
   );

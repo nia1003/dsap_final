@@ -10,6 +10,9 @@ interface GameState {
   activeMission: Mission | null;
   accomplishedMissions: Mission[];
 
+  // Distraction HashMap: reason → count  (O(1) 查詢與更新)
+  distractionMap: Record<string, number>;
+
   // Farm
   farmPlots: FarmPlot[];
 
@@ -19,9 +22,13 @@ interface GameState {
   // Mission Actions
   setMissions: (missions: Mission[]) => void;
   startMission: (mission: Mission) => void;
-  tickMission: () => void;           // 每秒呼叫，倒數 -1
+  tickMission: () => void;
   completeMission: () => void;
   failMission: () => void;
+
+  // Distraction Actions
+  recordDistraction: (reason: string) => void;
+  getTopDistractions: () => Array<{ reason: string; count: number; pct: number }>;
 
   // Farm Actions
   setFarmPlots: (plots: FarmPlot[]) => void;
@@ -40,6 +47,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   missions: [],
   activeMission: null,
   accomplishedMissions: [],
+  distractionMap: {},
   farmPlots: [],
   backpackItems: [],
 
@@ -81,6 +89,23 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (!activeMission) return;
     set({ activeMission: { ...activeMission, status: 'failed' } });
     setTimeout(() => set({ activeMission: null }), 2000);
+  },
+
+  // ── Distraction HashMap ───────────────────────
+  // O(1) 更新：直接以 reason 為 key，count +1
+  recordDistraction: (reason) => {
+    const map = get().distractionMap;
+    set({ distractionMap: { ...map, [reason]: (map[reason] ?? 0) + 1 } });
+  },
+
+  // 回傳排序後的分心清單，附上百分比
+  getTopDistractions: () => {
+    const map = get().distractionMap;
+    const total = Object.values(map).reduce((s, n) => s + n, 0);
+    if (total === 0) return [];
+    return Object.entries(map)
+      .map(([reason, count]) => ({ reason, count, pct: count / total }))
+      .sort((a, b) => b.count - a.count);
   },
 
   // ── Farm ─────────────────────────────────────
@@ -141,6 +166,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       missions: [],
       activeMission: null,
       accomplishedMissions: [],
+      distractionMap: {},
       farmPlots: [],
       backpackItems: [],
     }),

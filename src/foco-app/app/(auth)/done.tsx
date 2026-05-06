@@ -7,11 +7,13 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PetAvatar } from '@/components/pet/PetAvatar';
 import { Colors, FontSize, FontWeight, Spacing } from '@/constants/theme';
+import { useAuthStore } from '@/stores/authStore';
 
 const SPARKLES = ['✨', '★', '✦', '✧', '⭐'];
 
 export default function DoneScreen() {
   const router = useRouter();
+  const { login } = useAuthStore();
   const glow = useRef(new Animated.Value(0.8)).current;
 
   useEffect(() => {
@@ -28,7 +30,7 @@ export default function DoneScreen() {
       <View style={styles.container}>
         <View style={styles.hero}>
           <Animated.View style={{ transform: [{ scale: glow }] }}>
-            <PetAvatar petKind="sprout" size={200} animated />
+            <PetAvatar petKind="cat" size={200} animated />
           </Animated.View>
 
           {/* Sparkles */}
@@ -56,7 +58,14 @@ export default function DoneScreen() {
         <View style={styles.footer}>
           <TouchableOpacity
             style={styles.primaryBtn}
-            onPress={() => router.replace('/(app)/home')}
+            onPress={async () => {
+              // mock login — 後端串接前先用假 token 讓路由守衛通過
+              await login(
+                { accessToken: 'mock-token', refreshToken: 'mock-refresh' },
+                { id: '1', email: 'user@foco.app', nickname: 'Trainer', createdAt: new Date().toISOString() }
+              );
+              router.replace('/(app)/home');
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.primaryBtnText}>Start my first session</Text>

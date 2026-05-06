@@ -10,10 +10,10 @@ import { PetAvatar } from '@/components/pet/PetAvatar';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme';
 
 const PETS = [
-  { kind: 'sprout', name: 'Sprout', vibe: 'Calm & steady',    emoji: '🌱' },
-  { kind: 'ember',  name: 'Ember',  vibe: 'Bold & fiery',     emoji: '🔥' },
-  { kind: 'mist',   name: 'Mist',   vibe: 'Curious & dreamy', emoji: '🌫️' },
-  { kind: 'pebble', name: 'Pebble', vibe: 'Playful & warm',   emoji: '🪨' },
+  { kind: 'cat',     name: 'Cat',     vibe: 'Calm & graceful',  emoji: '🐱' },
+  { kind: 'bunny',   name: 'Bunny',   vibe: 'Curious & dreamy', emoji: '🐰' },
+  { kind: 'hamster', name: 'Hamster', vibe: 'Playful & warm',   emoji: '🐹' },
+  { kind: 'fox',     name: 'Fox',     vibe: 'Bold & clever',    emoji: '🦊' },
 ] as const;
 
 export default function PetScreen() {
