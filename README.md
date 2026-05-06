@@ -267,23 +267,23 @@ getTopDistractions: () => {
 
 <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start;">
   <div style="text-align:center">
-    <img src="src/screen-welcome.jpg" width="180"/><br/>
+    <img src="src/screen-welcome.jpg" width="480"/><br/>
     <small>1. Welcome</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-signup.jpg" width="180"/><br/>
+    <img src="src/screen-signup.jpg" width="480"/><br/>
     <small>2. Create account</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-profile.jpg" width="180"/><br/>
+    <img src="src/screen-profile.jpg" width="480"/><br/>
     <small>3. Tell us about you</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-pet.jpg" width="180"/><br/>
+    <img src="src/screen-pet.jpg" width="480"/><br/>
     <small>4. Pick your starter</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-consent.jpg" width="180"/><br/>
+    <img src="src/screen-consent.jpg" width="480"/><br/>
     <small>5. A few quick things</small>
   </div>
 </div>
@@ -292,7 +292,7 @@ getTopDistractions: () => {
 
 <div style="display:flex; flex-wrap:wrap; gap:16px; justify-content:center;">
   <div style="text-align:center">
-    <img src="src/screen-foucs_section.jpg" width="180"/><br/>
+    <img src="src/screen-foucs_section.jpg" width="480"/><br/>
     <small>Home — 寵物狀態 ＋ 開始專注</small>
   </div>
   <div style="text-align:center">
@@ -300,15 +300,15 @@ getTopDistractions: () => {
     <small>Farm — 寵物詳情 ＋ 7 天專注圖</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-analysis.jpg" width="180"/><br/>
+    <img src="src/screen-analysis.jpg" width="480"/><br/>
     <small>Stats — 專注統計 ＋ 分心原因</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-missions.jpg" width="180"/><br/>
+    <img src="src/screen-missions.jpg" width="480"/><br/>
     <small>Missions — 任務列表 ＋ XP 獎勵</small>
   </div>
   <div style="text-align:center">
-    <img src="src/screen-task.jpg" width="180"/><br/>
+    <img src="src/screen-task.jpg" width="480"/><br/>
     <small>Mission Detail — 計時器 ＋ 獎勵預覽</small>
   </div>
 </div>
