@@ -1,4 +1,4 @@
-# [FOCO - Focus Companion]
+# FOCO - Focus Companion
 
 ## Proposal Report
 
