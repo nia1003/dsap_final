@@ -1,103 +1,134 @@
-// ─────────────────────────────────────────────
-// Pet Screen — 對應 ScreenPet
-// ─────────────────────────────────────────────
+/**
+ * CompanionScreen — Choose your companion.
+ * Uses real pet illustrations from assets/pets/.
+ */
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { OnboardingHeader } from '@/components/layout/OnboardingHeader';
-import { PetAvatar } from '@/components/pet/PetAvatar';
-import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme';
+import { useSound } from '@/components/SoundProvider';
+import { AppBackground } from '@/components/ui/AppBackground';
+import { FrostCard } from '@/components/ui/FrostCard';
+import { FocoBar } from '@/components/layout/FocoBar';
+import { Colors } from '@/constants/theme';
+import { PETS } from '@/constants/pets';
+import { usePetStore } from '@/stores/petStore';
 
-const PETS = [
-  { kind: 'cat',     name: 'Cat',     vibe: 'Calm & graceful',  emoji: '🐱' },
-  { kind: 'bunny',   name: 'Bunny',   vibe: 'Curious & dreamy', emoji: '🐰' },
-  { kind: 'hamster', name: 'Hamster', vibe: 'Playful & warm',   emoji: '🐹' },
-  { kind: 'fox',     name: 'Fox',     vibe: 'Bold & clever',    emoji: '🦊' },
-] as const;
-
-export default function PetScreen() {
+export default function CompanionScreen() {
   const router = useRouter();
-  const [selected, setSelected] = useState<string>('');
-
-  const selectedPet = PETS.find((p) => p.kind === selected);
+  const { play } = useSound();
+  const { saveOnboardingPetName } = usePetStore();
+  const AVAILABLE_PETS = PETS.filter((p) => !p.locked);
+  const [selected, setSelected] = useState(AVAILABLE_PETS[0].id);
+  const selectedPet = AVAILABLE_PETS.find((p) => p.id === selected)!;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
-        <View style={styles.scrollArea}>
-          <OnboardingHeader step={3} />
-          <Text style={styles.title}>Pick your starter pet</Text>
-          <Text style={styles.sub}>You can grow more later. Choose the vibe that suits you today.</Text>
+    <View style={styles.root}>
+      <AppBackground />
+      <View style={styles.content}>
+        <FocoBar back />
 
-          <View style={styles.grid}>
-            {PETS.map((p) => (
-              <TouchableOpacity
-                key={p.kind}
-                style={[styles.card, selected === p.kind && styles.cardSelected]}
-                onPress={() => setSelected(p.kind)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.cardPet}>
-                  <PetAvatar petKind={p.kind} size={80} animated={false} />
-                </View>
-                <Text style={styles.petName}>{p.name}</Text>
-                <Text style={styles.petVibe}>{p.vibe}</Text>
-              </TouchableOpacity>
-            ))}
+        {/* Large preview of selected pet */}
+        <View style={styles.heroWrap}>
+          <View style={styles.heroBg}>
+            <Image
+              source={selectedPet.image}
+              style={styles.heroImage}
+              resizeMode="contain"
+            />
           </View>
+          <Text style={styles.heroName}>{selectedPet.name}</Text>
+          <Text style={styles.heroTrait}>{selectedPet.trait}</Text>
         </View>
 
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.primaryBtn, !selected && styles.disabled]}
-            disabled={!selected}
-            onPress={() => router.push('/(auth)/consent')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryBtnText}>
-              {selectedPet ? `Hatch ${selectedPet.name}` : 'Choose one'}
-            </Text>
-          </TouchableOpacity>
+        {/* Pet selector row */}
+        <View style={styles.selectorWrap}>
+          <FrostCard radius={28} padded={false}>
+            <View style={styles.selectorInner}>
+              <Text style={styles.selectorLabel}>Choose your companion</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.petRow}>
+                {AVAILABLE_PETS.map((pet) => {
+                  const active = selected === pet.id;
+                  return (
+                    <TouchableOpacity
+                      key={pet.id}
+                      style={[
+                        styles.petTile,
+                        active && { borderColor: pet.accent, borderWidth: 2, backgroundColor: pet.accent + '20' },
+                      ]}
+                      onPress={() => { play('tap'); setSelected(pet.id); }}
+                      activeOpacity={0.75}
+                    >
+                      <Image
+                        source={pet.image}
+                        style={styles.petTileImage}
+                        resizeMode="contain"
+                      />
+                      <Text style={[styles.petTileName, active && { color: Colors.ink, fontWeight: '700' }]}>
+                        {pet.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            <View style={styles.btnWrap}>
+              <TouchableOpacity
+                style={styles.continueBtn}
+                onPress={async () => {
+                play('transition_up');
+                await saveOnboardingPetName(selectedPet.name);
+                router.push({ pathname: '/(auth)/consent', params: { petId: selected } });
+              }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.continueBtnText}>CONTINUE →</Text>
+              </TouchableOpacity>
+            </View>
+          </FrostCard>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.white },
-  container: { flex: 1, paddingHorizontal: Spacing.lg },
-  scrollArea: { flex: 1, paddingTop: Spacing.xl },
-  title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginBottom: Spacing.xs },
-  sub: { fontSize: FontSize.md, color: Colors.textSecondary, marginBottom: Spacing.lg, lineHeight: 22 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  card: {
-    width: '48%',
-    borderRadius: Radius.xl,
-    borderWidth: 2,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surfaceMuted,
-    padding: Spacing.md,
-    alignItems: 'center',
-    ...Shadow.sm,
+  root: { flex: 1, backgroundColor: '#f6f4f4' },
+  content: { flex: 1, paddingHorizontal: 22, paddingTop: 54 },
+  heroWrap: { alignItems: 'center', marginTop: 12, marginBottom: 20 },
+  heroBg: {
+    width: 200, height: 200, borderRadius: 100,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 14,
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
-  cardSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.white,
-    ...Shadow.md,
+  heroImage: { width: 170, height: 170 },
+  heroName: {
+    fontFamily: 'Fraunces_500Medium',
+    fontSize: 28, fontWeight: '500', color: Colors.ink, letterSpacing: -0.3,
   },
-  cardPet: { height: 100, alignItems: 'center', justifyContent: 'center' },
-  petName: { fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.textPrimary, marginTop: Spacing.xs },
-  petVibe: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2, textAlign: 'center' },
-  footer: { paddingBottom: Spacing.lg, paddingTop: Spacing.md },
-  primaryBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 999,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
+  heroTrait: { fontSize: 14, color: Colors.inkSoft, marginTop: 4 },
+  selectorWrap: { flex: 1 },
+  selectorInner: { paddingTop: 22, paddingHorizontal: 20, paddingBottom: 4 },
+  selectorLabel: {
+    fontSize: 10, fontWeight: '700', color: Colors.inkFaint,
+    letterSpacing: 1.6, textTransform: 'uppercase', marginBottom: 14,
   },
-  primaryBtnText: { color: Colors.white, fontSize: FontSize.md, fontWeight: FontWeight.semibold },
-  disabled: { opacity: 0.4 },
+  petRow: { flexDirection: 'row', gap: 10, paddingBottom: 8 },
+  petTile: {
+    width: 88, alignItems: 'center', padding: 10, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
+    gap: 6,
+  },
+  petTileImage: { width: 60, height: 60 },
+  petTileName: { fontSize: 12, fontWeight: '500', color: Colors.inkSoft },
+  btnWrap: { padding: 20, paddingTop: 8 },
+  continueBtn: {
+    paddingVertical: 16, borderRadius: 9999,
+    backgroundColor: Colors.ink, alignItems: 'center',
+    shadowColor: Colors.ink, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18, shadowRadius: 24, elevation: 6,
+  },
+  continueBtnText: { fontSize: 14, fontWeight: '700', color: '#fff', letterSpacing: 3 },
 });

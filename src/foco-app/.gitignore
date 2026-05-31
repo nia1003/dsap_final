@@ -1,10 +1,16 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
+# Environment variables (contains secrets)
+.env
+.env.local
+
 # dependencies
 node_modules/
 
 # Expo
 .expo/
+.expo-bundle-test/
+.expo-test-bundle/
 dist/
 web-build/
 expo-env.d.ts
@@ -39,3 +45,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Claude Code worktrees (local session artifacts — not part of the repo)
+.claude/worktrees/

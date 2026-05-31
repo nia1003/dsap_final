@@ -1,166 +1,1137 @@
-// ─────────────────────────────────────────────
-// Stats Screen — 對應 ScreenStats
-// ─────────────────────────────────────────────
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { useGameStore } from '@/stores/gameStore';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppHeader } from '@/components/layout/AppHeader';
-import { TabBar } from '@/components/layout/TabBar';
-import { Colors, FontSize, FontWeight, Spacing, Radius } from '@/constants/theme';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Dimensions,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Svg, {
+  Circle,
+  Line as SvgLine,
+  Polygon,
+  Polyline,
+  Text as SvgText,
+} from 'react-native-svg';
+import { useRouter } from 'expo-router';
+// AppBackground and FrostCard replaced with flat #EFE8E0 / #E6E6E6 styling
+import { FocoBar } from '@/components/layout/FocoBar';
+import { Colors } from '@/constants/theme';
+import { useAuthStore } from '@/stores/authStore';
+import { FocusCalendar } from '@/components/FocusCalendar';
+import { getSessions, getCalendarData, getTasks } from '@/services/focoService';
+import { mockSessions, getMockCalendarData, mockTasks } from '@/data/mockData';
+import { usePetStore } from '@/stores/petStore';
+import { useSound } from '@/components/SoundProvider';
+import { ShareReceiptModal } from '@/components/share/ShareReceiptModal';
+import { useAppTheme } from '@/hooks/useAppTheme';
+import { useThemedStyles } from '@/hooks/useThemedStyles';
+import { usePreferencesStore } from '@/stores/preferencesStore';
+import {
+  createCategoryChartStyles,
+  createLineChartLabelStyles,
+  createStatsStyles,
+} from '@/styles/statsScreen.styles';
+import type { DayData, SessionRecord, Task, TaskCategory } from '@/types';
 
-const CATS = [
-  { n: 'Study',   v: 42, color: '#0D0D0D' },
-  { n: 'Work',    v: 28, color: '#525252' },
-  { n: 'Reading', v: 18, color: '#A3A3A3' },
-  { n: 'Hobby',   v: 12, color: '#D4D4D4' },
-];
-const DAYS_14 = [3, 5, 2, 6, 4, 7, 5, 4, 6, 3, 5, 7, 5, 4];
-const DMAX = Math.max(...DAYS_14);
-// Distraction data 改從 store 的 HashMap 讀取
-const FALLBACK_DISTRACTIONS = [
-  { n: 'Phone',              v: 0.6 },
-  { n: 'Wandering thoughts', v: 0.45 },
-  { n: 'Tiredness',          v: 0.3 },
+const { width: SCREEN_W } = Dimensions.get('window');
+// scrollContent paddingHorizontal 18×2 + chartCard padding 22×2 = 80
+const CHART_W = SCREEN_W - 80;
+
+// ── DISC config ──────────────────────────────────────────────────
+// ── Brand palette ─────────────────────────────────────────────
+const C_BLUE   = '#B5E0FF';
+const C_PURPLE = '#ECC5FE';
+const C_LIME   = '#E6FF97';
+const C_PINK   = '#FFC9EF';
+
+const DISC_COLOR: Record<string, string> = {
+  conscientiousness: C_BLUE,
+  dominance:         C_PURPLE,
+  steadiness:        C_LIME,
+  influence:         C_PINK,
+};
+
+const DISC_ICON: Record<string, string> = {
+  dominance: '▲',
+  influence: '◆',
+  steadiness: '◉',
+  conscientiousness: '◈',
+};
+
+const DISC_LABEL: Record<string, string> = {
+  dominance: 'Dominance',
+  influence: 'Influence',
+  steadiness: 'Steadiness',
+  conscientiousness: 'Conscientiousness',
+};
+
+const DISC_SUBLABEL: Record<string, string> = {
+  dominance: '主導型',
+  influence: '影響型',
+  steadiness: '穩健型',
+  conscientiousness: '謹慎型',
+};
+
+// Axes in clockwise order starting from top
+const DISC_AXES: { key: string; angle: number }[] = [
+  { key: 'dominance', angle: -Math.PI / 2 }, // top
+  { key: 'influence', angle: 0 }, // right
+  { key: 'steadiness', angle: Math.PI / 2 }, // bottom
+  { key: 'conscientiousness', angle: Math.PI }, // left
 ];
 
-export default function StatsScreen() {
-  const total = CATS.reduce((s, c) => s + c.v, 0);
-  const getTopDistractions = useGameStore((s) => s.getTopDistractions);
-  const topDistractions = getTopDistractions();
-  // 有真實資料就用 HashMap 結果，否則用 fallback demo 資料
-  const DISTRACTIONS = topDistractions.length > 0
-    ? topDistractions.slice(0, 5).map((d) => ({ n: d.reason, v: d.pct }))
-    : FALLBACK_DISTRACTIONS;
+// ── Data helpers ─────────────────────────────────────────────────
+type PeriodMode = 'day' | 'week' | 'month';
+
+const WEEKLY_POINTS = 6;
+const MONTHLY_POINTS = 6;
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function dayLabel(d: Date): string {
+  return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()];
+}
+
+interface DayStat {
+  date: Date;
+  day: string;
+  hours: number;
+  sessions: number;
+}
+
+function aggregateSessions(
+  sessions: SessionRecord[],
+  rangeStart: number,
+  rangeEnd: number,
+): { hours: number; sessions: number } {
+  const inRange = sessions.filter((s) => {
+    const t = new Date(s.ended_at).getTime();
+    return t >= rangeStart && t < rangeEnd;
+  });
+  const totalSec = inRange.reduce((acc, s) => acc + s.actual_duration, 0);
+  return {
+    hours: Math.round((totalSec / 3600) * 10) / 10,
+    sessions: inRange.length,
+  };
+}
+
+function getDailyRange(anchorEnd: Date): Date[] {
+  const end = startOfDay(anchorEnd);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(end);
+    d.setDate(d.getDate() - (6 - i));
+    return d;
+  });
+}
+
+function getWeeklyRanges(
+  anchorEnd: Date,
+  count: number,
+): { start: Date; end: Date }[] {
+  const end = startOfDay(anchorEnd);
+  return Array.from({ length: count }, (_, i) => {
+    const weekEnd = new Date(end);
+    weekEnd.setDate(weekEnd.getDate() - (count - 1 - i) * 7);
+    const weekStart = new Date(weekEnd);
+    weekStart.setDate(weekStart.getDate() - 6);
+    return { start: weekStart, end: weekEnd };
+  });
+}
+
+function getMonthlyRanges(
+  anchorEnd: Date,
+  count: number,
+): { year: number; month: number }[] {
+  const anchor = new Date(anchorEnd.getFullYear(), anchorEnd.getMonth(), 1);
+  return Array.from({ length: count }, (_, i) => {
+    const m = new Date(
+      anchor.getFullYear(),
+      anchor.getMonth() - (count - 1 - i),
+      1,
+    );
+    return { year: m.getFullYear(), month: m.getMonth() };
+  });
+}
+
+function buildChartStats(
+  sessions: SessionRecord[],
+  mode: PeriodMode,
+  anchorEnd: Date,
+): DayStat[] {
+  if (mode === 'day') {
+    return getDailyRange(anchorEnd).map((date) => {
+      const dayStart = date.getTime();
+      const agg = aggregateSessions(sessions, dayStart, dayStart + 86_400_000);
+      return { date, day: dayLabel(date), ...agg };
+    });
+  }
+
+  if (mode === 'week') {
+    return getWeeklyRanges(anchorEnd, WEEKLY_POINTS).map(({ start, end }) => {
+      const agg = aggregateSessions(
+        sessions,
+        start.getTime(),
+        end.getTime() + 86_400_000,
+      );
+      return {
+        date: end,
+        day: `${start.getMonth() + 1}/${start.getDate()}`,
+        ...agg,
+      };
+    });
+  }
+
+  return getMonthlyRanges(anchorEnd, MONTHLY_POINTS).map(({ year, month }) => {
+    const start = new Date(year, month, 1);
+    const end = new Date(year, month + 1, 1);
+    const agg = aggregateSessions(sessions, start.getTime(), end.getTime());
+    return {
+      date: start,
+      day: MONTHS[month],
+      ...agg,
+    };
+  });
+}
+
+function formatChartPeriod(mode: PeriodMode, anchorEnd: Date): string {
+  if (mode === 'day') {
+    const days = getDailyRange(anchorEnd);
+    const first = days[0];
+    const last = days[6];
+    return `${
+      MONTHS[first.getMonth()]
+    } ${first.getDate()} – ${last.getDate()}, ${last.getFullYear()}`;
+  }
+  if (mode === 'week') {
+    const ranges = getWeeklyRanges(anchorEnd, WEEKLY_POINTS);
+    const first = ranges[0].start;
+    const last = ranges[ranges.length - 1].end;
+    return `${
+      MONTHS[first.getMonth()]
+    } ${first.getDate()} – ${last.getDate()}, ${last.getFullYear()}`;
+  }
+  const ranges = getMonthlyRanges(anchorEnd, MONTHLY_POINTS);
+  const first = ranges[0];
+  const last = ranges[ranges.length - 1];
+  return `${MONTHS[first.month]} ${first.year} – ${MONTHS[last.month]} ${
+    last.year
+  }`;
+}
+
+function shiftChartAnchor(
+  anchor: Date,
+  mode: PeriodMode,
+  direction: -1 | 1,
+): Date {
+  const d = new Date(anchor);
+  if (mode === 'day') d.setDate(d.getDate() + direction * 7);
+  else if (mode === 'week')
+    d.setDate(d.getDate() + direction * WEEKLY_POINTS * 7);
+  else d.setMonth(d.getMonth() + direction * MONTHLY_POINTS);
+  return d;
+}
+
+function isAnchorInFuture(anchor: Date, mode: PeriodMode): boolean {
+  const today = startOfDay(new Date());
+  const shifted = shiftChartAnchor(anchor, mode, 1);
+  return startOfDay(shifted) > today;
+}
+
+// ── History-tab helpers ───────────────────────────────────────────
+type HistoryTab = 'daily' | 'weekly' | 'monthly';
+
+const HOUR_SLOTS = [0, 3, 6, 9, 12, 15, 18, 21];
+const WEEK_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function buildHourlyStats(sessions: SessionRecord[], anchor: Date): DayStat[] {
+  const dayStart = startOfDay(anchor);
+  return HOUR_SLOTS.map((h) => {
+    const slotStart = dayStart.getTime() + h * 3_600_000;
+    const agg = aggregateSessions(sessions, slotStart, slotStart + 3 * 3_600_000);
+    return {
+      date: new Date(slotStart),
+      day: String(h).padStart(2, '0'),
+      ...agg,
+    };
+  });
+}
+
+function getMondayOf(d: Date): Date {
+  const dow = d.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  const mon = new Date(d);
+  mon.setDate(mon.getDate() + diff);
+  return startOfDay(mon);
+}
+
+function buildThisWeekStats(sessions: SessionRecord[], anchor: Date): DayStat[] {
+  const mon = getMondayOf(anchor);
+  return WEEK_DAY_LABELS.map((label, i) => {
+    const dayStart = new Date(mon);
+    dayStart.setDate(mon.getDate() + i);
+    const agg = aggregateSessions(
+      sessions,
+      dayStart.getTime(),
+      dayStart.getTime() + 86_400_000,
+    );
+    return { date: dayStart, day: label, ...agg };
+  });
+}
+
+function formatHistoryPeriod(tab: HistoryTab, anchor: Date): string {
+  if (tab === 'daily') {
+    return `${MONTHS[anchor.getMonth()]} ${anchor.getDate()}, ${anchor.getFullYear()}`;
+  }
+  if (tab === 'weekly') {
+    const mon = getMondayOf(anchor);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    return `${MONTHS[mon.getMonth()]} ${mon.getDate()} – ${sun.getDate()}, ${sun.getFullYear()}`;
+  }
+  return `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`;
+}
+
+function shiftHistoryAnchor(anchor: Date, tab: HistoryTab, dir: -1 | 1): Date {
+  const d = new Date(anchor);
+  if (tab === 'daily') d.setDate(d.getDate() + dir);
+  else if (tab === 'weekly') d.setDate(d.getDate() + dir * 7);
+  else d.setMonth(d.getMonth() + dir);
+  return d;
+}
+
+function isHistoryAnchorFuture(anchor: Date, tab: HistoryTab): boolean {
+  const today = startOfDay(new Date());
+  return startOfDay(shiftHistoryAnchor(anchor, tab, 1)) > today;
+}
+
+// Returns fraction (0–1) for each DISC type across all sessions
+function buildDiscData(sessions: SessionRecord[]): Record<string, number> {
+  const counts: Record<string, number> = {
+    dominance: 0,
+    influence: 0,
+    steadiness: 0,
+    conscientiousness: 0,
+  };
+  sessions.forEach((s) => {
+    if (s.focus_type_result && s.focus_type_result in counts) {
+      counts[s.focus_type_result]++;
+    }
+  });
+  const total = sessions.length || 1;
+  return Object.fromEntries(
+    Object.entries(counts).map(([k, v]) => [k, v / total]),
+  );
+}
+
+type CategoryStat = {
+  key: string;
+  label: string;
+  hours: number;
+  pct: number;
+  color: string;
+};
+type FocusGroupMode = 'category' | 'task';
+
+const TASK_NAME_COLORS = [
+  C_PURPLE, C_BLUE, C_LIME, C_PINK,
+  '#D4AAFE', '#91CFFF', '#CFFF6E', '#FFAADE',
+];
+
+function resolveSessionTaskLabel(
+  s: SessionRecord,
+  taskMap: Map<string, Task>,
+): string {
+  if (s.task_id) {
+    const t = taskMap.get(s.task_id);
+    if (t) return t.emoji ? `${t.emoji} ${t.title}` : t.title;
+  }
+  const tasksData = s.tasks;
+  if (Array.isArray(tasksData) && tasksData[0]?.title)
+    return tasksData[0].title;
+  if (tasksData && typeof tasksData === 'object' && 'title' in tasksData) {
+    return (tasksData as { title: string }).title;
+  }
+  return 'Free focus';
+}
+
+function normalizeTaskGroupKey(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+function buildCategoryFocusStats(
+  sessions: SessionRecord[],
+  tasks: Task[],
+): CategoryStat[] {
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  let taskSec = 0;
+  let dailySec = 0;
+  let freeSec = 0;
+
+  sessions.forEach((s) => {
+    const sec = s.actual_duration ?? 0;
+    if (!s.task_id) {
+      freeSec += sec;
+      return;
+    }
+    const cat: TaskCategory = taskMap.get(s.task_id)?.category ?? 'task';
+    if (cat === 'daily') dailySec += sec;
+    else taskSec += sec;
+  });
+
+  const total = taskSec + dailySec + freeSec || 1;
+  return [
+    {
+      key: 'task',
+      label: 'Task',
+      hours: taskSec / 3600,
+      pct: taskSec / total,
+      color: C_BLUE,
+    },
+    {
+      key: 'daily',
+      label: 'Daily',
+      hours: dailySec / 3600,
+      pct: dailySec / total,
+      color: C_PURPLE,
+    },
+    {
+      key: 'free',
+      label: 'Free focus',
+      hours: freeSec / 3600,
+      pct: freeSec / total,
+      color: C_LIME,
+    },
+  ];
+}
+
+function buildTaskNameFocusStats(
+  sessions: SessionRecord[],
+  tasks: Task[],
+): CategoryStat[] {
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const buckets = new Map<string, { label: string; sec: number }>();
+
+  sessions.forEach((s) => {
+    const sec = s.actual_duration ?? 0;
+    if (sec <= 0) return;
+    const label = resolveSessionTaskLabel(s, taskMap);
+    const key = normalizeTaskGroupKey(label);
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.sec += sec;
+    } else {
+      buckets.set(key, { label, sec });
+    }
+  });
+
+  const total = [...buckets.values()].reduce((acc, b) => acc + b.sec, 0);
+  if (total <= 0) return [];
+
+  const sorted = [...buckets.entries()].sort((a, b) => b[1].sec - a[1].sec);
+  const top = sorted.slice(0, 7);
+  const restSec = sorted.slice(7).reduce((acc, [, b]) => acc + b.sec, 0);
+  const entries =
+    restSec > 0
+      ? [...top, ['__other__', { label: 'Other', sec: restSec }] as const]
+      : top;
+
+  return entries.map(([key, { label, sec }], i) => ({
+    key,
+    label,
+    hours: sec / 3600,
+    pct: sec / total,
+    color: TASK_NAME_COLORS[i % TASK_NAME_COLORS.length],
+  }));
+}
+
+function CategoryBarChart({
+  stats,
+  emptyText = '尚無專注紀錄',
+}: {
+  stats: CategoryStat[];
+  emptyText?: string;
+}) {
+  const catChartStyles = useThemedStyles(createCategoryChartStyles);
+  if (stats.length === 0) {
+    return <Text style={catChartStyles.empty}>{emptyText}</Text>;
+  }
+  const maxHours = Math.max(...stats.map((s) => s.hours), 0.25);
+  return (
+    <View style={catChartStyles.wrap}>
+      {stats.map((s) => (
+        <View key={s.key} style={catChartStyles.row}>
+          <View style={catChartStyles.labelCol}>
+            <Text style={catChartStyles.label} numberOfLines={2}>
+              {s.label}
+            </Text>
+            <Text style={catChartStyles.sub}>
+              {Math.round(s.hours * 10) / 10}h · {Math.round(s.pct * 100)}%
+            </Text>
+          </View>
+          <View style={catChartStyles.barTrack}>
+            <View
+              style={[
+                catChartStyles.barFill,
+                {
+                  width: `${Math.max(
+                    (s.hours / maxHours) * 100,
+                    s.hours > 0 ? 8 : 0,
+                  )}%` as `${number}%`,
+                  backgroundColor: s.color,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function getDominantType(data: Record<string, number>): string {
+  const entries = Object.entries(data);
+  if (entries.every(([, v]) => v === 0)) return 'steadiness';
+  return entries.reduce((a, b) => (a[1] >= b[1] ? a : b))[0];
+}
+
+function sessionTimeOfDay(isoStr: string): string {
+  const h = new Date(isoStr).getHours();
+  if (h < 6) return '深夜';
+  if (h < 12) return '早上';
+  if (h < 17) return '下午';
+  if (h < 21) return '傍晚';
+  return '夜晚';
+}
+
+// ── Line Chart ───────────────────────────────────────────────────
+function LineChart({
+  chartStats,
+  selectedIndex,
+  onSelect,
+  hideDotWhenEmpty = false,
+}: {
+  chartStats: DayStat[];
+  selectedIndex: number;
+  onSelect: (i: number) => void;
+  hideDotWhenEmpty?: boolean;
+}) {
+  const { colors, isDark } = useAppTheme();
+  const lcStyles = useThemedStyles(createLineChartLabelStyles);
+  const W = CHART_W;
+  const H = 80;
+  const PAD_TOP = 22;
+  const n = chartStats.length;
+  const PAD_X = W / (2 * Math.max(n, 1));
+  const innerW = W - PAD_X * 2;
+  const svgH = H + PAD_TOP + 8;
+
+  if (n === 0) return null;
+
+  const MAX = Math.max(...chartStats.map((d) => d.hours), 0.1);
+  const xDivisor = Math.max(n - 1, 1);
+
+  const pts = chartStats.map((d, i) => ({
+    x: PAD_X + (i / xDivisor) * innerW,
+    y: PAD_TOP + (1 - d.hours / MAX) * H,
+  }));
+
+  const polylineStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+
+  const areaStr = [
+    ...pts.map((p) => `${p.x},${p.y}`),
+    `${pts[n - 1].x},${PAD_TOP + H + 4}`,
+    `${pts[0].x},${PAD_TOP + H + 4}`,
+  ].join(' ');
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppHeader title="Stats" showBack />
+    <View>
+      <Svg width={W} height={svgH}>
+        {/* Gradient-like area fill */}
+        <Polygon
+          points={areaStr}
+          fill="rgba(236,197,254,0.25)"
+        />
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Donut + Legend */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Time by mission</Text>
-          <View style={styles.donutRow}>
-            {/* Simplified pie using stacked bars */}
-            <View style={styles.donut}>
-              <View style={styles.donutCenter}>
-                <Text style={styles.donutHrs}>34h</Text>
-                <Text style={styles.donutSub}>this week</Text>
-              </View>
-              {CATS.map((c) => (
-                <View
-                  key={c.n}
-                  style={[styles.donutSlice, { height: `${(c.v / total) * 100}%`, backgroundColor: c.color }]}
-                />
-              ))}
-            </View>
+        <Polyline
+          points={polylineStr}
+          fill="none"
+          stroke={C_PURPLE}
+          strokeWidth={2.5}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
 
-            {/* Legend */}
-            <View style={styles.legend}>
-              {CATS.map((c) => (
-                <View key={c.n} style={styles.legendRow}>
-                  <View style={[styles.legendDot, { backgroundColor: c.color }]} />
-                  <Text style={{ flex: 1, fontSize: FontSize.sm }}>{c.n}</Text>
-                  <Text style={[styles.legendVal]}>{c.v}h</Text>
+        {pts.map((p, i) => {
+          const isEmpty = hideDotWhenEmpty &&
+            chartStats[i].hours === 0 &&
+            chartStats[i].day === '';
+          if (isEmpty) return null;
+          return i === selectedIndex ? (
+            <React.Fragment key={i}>
+              <Circle cx={p.x} cy={p.y} r={12} fill="rgba(236,197,254,0.20)" />
+              <Circle cx={p.x} cy={p.y} r={5.5} fill={C_PURPLE} />
+            </React.Fragment>
+          ) : (
+            <Circle
+              key={i}
+              cx={p.x}
+              cy={p.y}
+              r={3.5}
+              fill="rgba(236,197,254,0.60)"
+            />
+          );
+        })}
+      </Svg>
+
+      {/* Tap targets + day labels */}
+      <View style={lcStyles.dayRow}>
+        {chartStats.map((d, i) => (
+          <TouchableOpacity
+            key={i}
+            style={lcStyles.dayBtn}
+            onPress={() => onSelect(i)}
+            activeOpacity={0.7}
+          >
+            <Text
+              numberOfLines={1}
+              style={[
+                lcStyles.dayLabel,
+                i === selectedIndex && lcStyles.dayLabelActive,
+              ]}
+            >
+              {d.day}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ── Radar Chart ──────────────────────────────────────────────────
+function RadarChart({ data }: { data: Record<string, number> }) {
+  const SIZE = 180;
+  const cx = SIZE / 2;
+  const cy = SIZE / 2;
+  const R = 56;
+
+  const gridLevels = [1 / 3, 2 / 3, 1];
+
+  const gridPolygons = gridLevels.map((level) =>
+    DISC_AXES.map(({ angle }) => {
+      const r = level * R;
+      return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`;
+    }).join(' '),
+  );
+
+  // Ensure at least a tiny shape even if all values are 0
+  const dataPoints = DISC_AXES.map(({ key, angle }) => {
+    const val = Math.max(data[key] ?? 0, 0.04);
+    return {
+      x: cx + val * R * Math.cos(angle),
+      y: cy + val * R * Math.sin(angle),
+    };
+  });
+  const polygonPoints = dataPoints.map((p) => `${p.x},${p.y}`).join(' ');
+
+  // Emoji label positions (slightly beyond axis end)
+  const labelR = R + 22;
+
+  return (
+    <Svg width={SIZE} height={SIZE}>
+      {/* Grid rings */}
+      {gridPolygons.map((pts, i) => (
+        <Polygon
+          key={i}
+          points={pts}
+          fill="none"
+          stroke="rgba(20,16,28,0.08)"
+          strokeWidth={1}
+        />
+      ))}
+
+      {/* Axis lines */}
+      {DISC_AXES.map(({ key, angle }) => (
+        <SvgLine
+          key={key}
+          x1={cx}
+          y1={cy}
+          x2={cx + R * Math.cos(angle)}
+          y2={cy + R * Math.sin(angle)}
+          stroke="rgba(20,16,28,0.10)"
+          strokeWidth={1}
+        />
+      ))}
+
+      {/* Data fill */}
+      <Polygon
+        points={polygonPoints}
+        fill="rgba(236,197,254,0.30)"
+        stroke={C_PURPLE}
+        strokeWidth={2}
+      />
+
+      {/* Data dots */}
+      {dataPoints.map((p, i) => (
+        <Circle key={i} cx={p.x} cy={p.y} r={3.5} fill={C_PURPLE} />
+      ))}
+
+      {/* Icon labels */}
+      {DISC_AXES.map(({ key, angle }) => {
+        const lx = cx + labelR * Math.cos(angle);
+        const ly = cy + labelR * Math.sin(angle);
+        return (
+          <SvgText
+            key={key}
+            x={lx}
+            y={ly + 5}
+            textAnchor="middle"
+            fontSize={14}
+            fill={DISC_COLOR[key] ?? '#888'}
+            fontWeight="600"
+          >
+            {DISC_ICON[key]}
+          </SvgText>
+        );
+      })}
+    </Svg>
+  );
+}
+
+// ── Main Screen ──────────────────────────────────────────────────
+export default function StatsScreen() {
+  const router = useRouter();
+  const { screenBg } = useAppTheme();
+  const styles = useThemedStyles(createStatsStyles);
+  const { userId, userName, userEmail } = useAuthStore();
+  const { activePet } = usePetStore();
+  const { play } = useSound();
+  const avatarUri = usePreferencesStore((s) => s.avatarUri);
+  const displayName = userName ?? userEmail?.split('@')[0] ?? '?';
+  const settingsAvatar = displayName[0]?.toUpperCase() ?? '?';
+
+  const [loading, setLoading] = useState(true);
+  const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [summary, setSummary] = useState({
+    total_focus_sec: 0,
+    streak_days: 0,
+    total_sessions: 0,
+  });
+  const [shareOpen, setShareOpen] = useState(false);
+  const [focusGroupMode, setFocusGroupMode] =
+    useState<FocusGroupMode>('category');
+
+  const nowDate = new Date();
+  const [calYear, setCalYear] = useState(nowDate.getFullYear());
+  const [calMonth, setCalMonth] = useState(nowDate.getMonth() + 1);
+  const [calData, setCalData] = useState<DayData[]>([]);
+  const [historyTab, setHistoryTab] = useState<HistoryTab>('weekly');
+  const [historyAnchor, setHistoryAnchor] = useState(() => new Date());
+  const [historySelectedIdx, setHistorySelectedIdx] = useState(6);
+
+  useEffect(() => {
+    if (!userId) {
+      setSessions(mockSessions.sessions);
+      setSummary(mockSessions.summary);
+      const demoDone: Task = {
+        id: 't-demo-today',
+        user_id: 'mock-user-001',
+        title: 'focus for data structure exam',
+        duration_min: 50,
+        status: 'done',
+        created_at: new Date().toISOString(),
+      };
+      setTasks([
+        ...mockTasks.tasks.filter((t) => t.status !== 'deleted'),
+        demoDone,
+      ]);
+      setLoading(false);
+      return;
+    }
+    Promise.all([getSessions(userId), getTasks(userId)])
+      .then(([sessionRes, taskRes]) => {
+        setSessions(sessionRes.sessions);
+        setSummary(sessionRes.summary);
+        setTasks(taskRes.tasks);
+      })
+      .catch(() => {
+        setSessions(mockSessions.sessions);
+        setSummary(mockSessions.summary);
+        setTasks(mockTasks.tasks);
+      })
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setCalData(getMockCalendarData(calYear, calMonth));
+      return;
+    }
+    getCalendarData(userId, calYear, calMonth)
+      .then(setCalData)
+      .catch(() => setCalData(getMockCalendarData(calYear, calMonth)));
+  }, [userId, calYear, calMonth]);
+
+  const handleMonthChange = (y: number, m: number) => {
+    setCalYear(y);
+    setCalMonth(m);
+  };
+
+  const historyForwardDisabled =
+    historyTab !== 'monthly' && isHistoryAnchorFuture(historyAnchor, historyTab);
+  const historyPeriodLabel = formatHistoryPeriod(historyTab, historyAnchor);
+  const historyStats = useMemo<DayStat[]>(() => {
+    if (historyTab === 'daily') return buildHourlyStats(sessions, historyAnchor);
+    if (historyTab === 'weekly') return buildThisWeekStats(sessions, historyAnchor);
+    return [];
+  }, [historyTab, historyAnchor, sessions]);
+
+  const handleHistoryTabChange = (tab: HistoryTab) => {
+    setHistoryTab(tab);
+    setHistoryAnchor(new Date());
+    setHistorySelectedIdx(tab === 'daily' ? HOUR_SLOTS.length - 1 : 6);
+  };
+  const handleHistoryBack = () =>
+    setHistoryAnchor((prev) => shiftHistoryAnchor(prev, historyTab, -1));
+  const handleHistoryForward = () => {
+    if (!historyForwardDisabled)
+      setHistoryAnchor((prev) => shiftHistoryAnchor(prev, historyTab, 1));
+  };
+
+  const discData = buildDiscData(sessions);
+  const dominant = getDominantType(discData);
+  const focusGroupStats = useMemo(
+    () =>
+      focusGroupMode === 'category'
+        ? buildCategoryFocusStats(sessions, tasks)
+        : buildTaskNameFocusStats(sessions, tasks),
+    [sessions, tasks, focusGroupMode],
+  );
+
+  const totalHours = Math.round((summary.total_focus_sec / 3600) * 10) / 10;
+
+  if (loading) {
+    return (
+      <View style={styles.root}>
+        <FocoBar avatar={settingsAvatar} avatarUri={avatarUri} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.root}>
+      <FocoBar avatar={settingsAvatar} avatarUri={avatarUri} />
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.title}>Stats</Text>
+        <Text style={styles.sub}>{historyPeriodLabel}</Text>
+
+        {/* ── Summary row ────────────────────────────── */}
+        <View style={styles.summaryRow}>
+          {([
+            { v: `${totalHours}h`, l: 'Total',    bg: 'rgba(236,197,254,0.40)' },
+            { v: String(summary.total_sessions), l: 'Sessions', bg: 'rgba(181,224,255,0.40)' },
+            { v: `${summary.streak_days}d`, l: 'Streak',   bg: 'rgba(230,255,151,0.40)' },
+          ] as const).map((s, i) => (
+            <View key={i} style={styles.summaryCard}>
+              <View style={[styles.flatCard, { backgroundColor: s.bg }]}>
+                <View style={styles.summaryInner}>
+                  <Text style={styles.summaryVal}>{s.v}</Text>
+                  <Text style={styles.summaryLabel}>{s.l}</Text>
                 </View>
-              ))}
-            </View>
-          </View>
-        </View>
-
-        {/* 14-day bar chart */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Daily focus · 14 days</Text>
-          <View style={styles.bars}>
-            {DAYS_14.map((h, i) => (
-              <View key={i} style={styles.barCol}>
-                <View
-                  style={[
-                    styles.bar,
-                    { height: (h / DMAX) * 80, backgroundColor: i === DAYS_14.length - 1 ? Colors.primary : Colors.borderMid },
-                  ]}
-                />
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Top distractions */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Top distractions</Text>
-          {DISTRACTIONS.map((d) => (
-            <View key={d.n} style={{ marginBottom: Spacing.sm }}>
-              <View style={styles.distRow}>
-                <Text style={styles.distName}>{d.n}</Text>
-                <Text style={styles.distPct}>{Math.round(d.v * 100)}%</Text>
-              </View>
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: `${d.v * 100}%` }]} />
               </View>
             </View>
           ))}
         </View>
+
+        {/* ── Focus History (Daily / Weekly / Monthly) ─── */}
+        <View style={styles.section}>
+          <View style={styles.flatCard}>
+            <View style={styles.chartCard}>
+              <Text style={styles.chartTitle}>Focus History</Text>
+
+              <View style={styles.periodModes}>
+                {(
+                  [
+                    { key: 'daily'   as const, label: 'Daily'   },
+                    { key: 'weekly'  as const, label: 'Weekly'  },
+                    { key: 'monthly' as const, label: 'Monthly' },
+                  ] as const
+                ).map(({ key, label }) => (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={() => handleHistoryTabChange(key)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.periodModeLabel,
+                        historyTab === key && styles.periodModeLabelActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {historyTab !== 'monthly' && (
+                <View style={styles.chartNav}>
+                  <TouchableOpacity
+                    onPress={handleHistoryBack}
+                    style={styles.chartNavBtn}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={styles.chartNavArrow}>‹</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.chartPeriodLabel}>{historyPeriodLabel}</Text>
+                  <TouchableOpacity
+                    onPress={handleHistoryForward}
+                    style={styles.chartNavBtn}
+                    activeOpacity={0.6}
+                    disabled={historyForwardDisabled}
+                  >
+                    <Text
+                      style={[
+                        styles.chartNavArrow,
+                        historyForwardDisabled && styles.chartNavArrowDisabled,
+                      ]}
+                    >
+                      ›
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {historyTab === 'monthly' ? (
+                <View style={styles.calInner}>
+                  <FocusCalendar
+                    year={calYear}
+                    month={calMonth}
+                    data={calData}
+                    onMonthChange={handleMonthChange}
+                  />
+                </View>
+              ) : (
+                <>
+                  <LineChart
+                    chartStats={historyStats}
+                    selectedIndex={historySelectedIdx}
+                    onSelect={setHistorySelectedIdx}
+                    hideDotWhenEmpty={historyTab === 'daily'}
+                  />
+                  {historyStats[historySelectedIdx] && (
+                    <View style={styles.selectedDetail}>
+                      <Text style={styles.selectedDetailText}>
+                        {historyStats[historySelectedIdx].sessions} session
+                        {historyStats[historySelectedIdx].sessions !== 1
+                          ? 's'
+                          : ''}{' '}
+                        · {historyStats[historySelectedIdx].hours}h focused
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
+        </View>
+
+        {/* ── Focus by task category ─────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.flatCard}>
+            <View style={[styles.breakdownCard, styles.breakdownCardStretch]}>
+              <Text style={[styles.chartTitle, styles.chartTitleLeft]}>
+                Focus Breakdown
+              </Text>
+              <View style={styles.periodModes}>
+                {(
+                  [
+                    { key: 'category' as const, label: 'Category' },
+                    { key: 'task' as const, label: 'Task' },
+                  ] as const
+                ).map(({ key, label }) => (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={() => {
+                      play('tap');
+                      setFocusGroupMode(key);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.periodModeLabel,
+                        focusGroupMode === key && styles.periodModeLabelActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <CategoryBarChart
+                stats={focusGroupStats}
+                emptyText="No focus data yet"
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* ── Focus type breakdown ────────────────────── */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => {
+              play('tap');
+              router.push({
+                pathname: '/(app)/disc-detail',
+                params: { dominant },
+              });
+            }}
+          >
+            <View style={styles.flatCard}>
+              <View style={styles.breakdownCard}>
+                <View style={styles.chartTitleRow}>
+                  <Text style={styles.chartTitle}>Focus type breakdown</Text>
+                  <Text style={styles.chartTitleChevron}>›</Text>
+                </View>
+
+                {/* Dominant type row */}
+                <View style={styles.dominantRow}>
+                  <Text
+                    style={[
+                      styles.dominantEmoji,
+                      { color: DISC_COLOR[dominant] ?? '#888' },
+                    ]}
+                  >
+                    {DISC_ICON[dominant]}
+                  </Text>
+                  <View style={styles.dominantInfo}>
+                    <Text style={styles.dominantLabel}>
+                      {DISC_LABEL[dominant]}
+                    </Text>
+                    <Text style={styles.dominantSub}>
+                      {DISC_SUBLABEL[dominant]}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.dominantBadge,
+                      {
+                        backgroundColor:
+                          (DISC_COLOR[dominant] ?? C_PURPLE) + '22',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dominantBadgeText,
+                        { color: DISC_COLOR[dominant] ?? C_PURPLE },
+                      ]}
+                    >
+                      {Math.round((discData[dominant] ?? 0) * 100)}%
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Radar chart */}
+                <View style={styles.radarWrapper}>
+                  <RadarChart data={discData} />
+                </View>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Recent sessions ─────────────────────────── */}
+        {sessions.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.flatCard}>
+              <View style={styles.recentCard}>
+                <Text style={styles.chartTitle}>Recent sessions</Text>
+                {sessions.slice(0, 5).map((s) => {
+                  const mins = Math.floor(s.actual_duration / 60);
+                  const refTime = s.started_at ?? s.ended_at;
+                  const date = new Date(s.ended_at);
+                  const dateStr = `${
+                    MONTHS[date.getMonth()]
+                  } ${date.getDate()}`;
+                  const timeOfDay = sessionTimeOfDay(refTime);
+                  const tasksData = s.tasks;
+                  const taskName = Array.isArray(tasksData)
+                    ? tasksData[0]?.title ?? null
+                    : tasksData?.title ?? null;
+                  return (
+                    <View key={s.id} style={styles.sessionRow}>
+                      <View style={styles.sessionDot} />
+                      <View style={styles.sessionInfo}>
+                        <Text style={styles.sessionTitle}>
+                          {taskName ?? `${mins}m focus`}
+                        </Text>
+                        <Text style={styles.sessionSub}>
+                          {timeOfDay} · {dateStr} · {mins}m
+                        </Text>
+                      </View>
+                      <View style={styles.sessionRight}>
+                        <Text style={styles.sessionXP}>+{s.xp_earned}</Text>
+                        <Text style={styles.sessionXPLabel}>XP</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={styles.shareOpenBtn}
+          onPress={() => {
+            play('tap');
+            setShareOpen(true);
+          }}
+          activeOpacity={0.88}
+        >
+          <Text style={styles.shareOpenBtnText}>Share</Text>
+        </TouchableOpacity>
       </ScrollView>
 
-      <TabBar />
-    </SafeAreaView>
+      <ShareReceiptModal
+        visible={shareOpen}
+        onClose={() => setShareOpen(false)}
+        sessions={sessions}
+        tasks={tasks}
+        userName={userName}
+        userEmail={userEmail}
+        petLevel={activePet?.level}
+      />
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.white },
-  scroll: { padding: Spacing.lg, gap: Spacing.sm },
-  card: {
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-  },
-  cardTitle: { fontSize: FontSize.md, fontWeight: FontWeight.bold, marginBottom: Spacing.sm },
-
-  // Donut
-  donutRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  donut: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    overflow: 'hidden',
-    flexDirection: 'column',
-    position: 'relative',
-  },
-  donutSlice: { width: '100%' },
-  donutCenter: {
-    position: 'absolute',
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: Colors.white,
-    top: 28,
-    left: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 2,
-  },
-  donutHrs: { fontSize: 14, fontWeight: FontWeight.bold },
-  donutSub: { fontSize: 8, color: Colors.textSecondary },
-  legend: { flex: 1, gap: 6 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  legendDot: { width: 10, height: 10, borderRadius: 3 },
-  legendVal: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
-
-  // Bar chart
-  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 90 },
-  barCol: { flex: 1, alignItems: 'center' },
-  bar: { width: '100%', borderRadius: 3 },
-
-  // Distractions
-  distRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
-  distName: { fontSize: FontSize.sm },
-  distPct: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  track: { height: 6, borderRadius: 999, backgroundColor: Colors.border, overflow: 'hidden' },
-  fill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 999 },
-
-  borderMid: { borderColor: Colors.borderMid },
-});

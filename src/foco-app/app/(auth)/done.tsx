@@ -1,114 +1,112 @@
-// ─────────────────────────────────────────────
-// Done Screen — 對應 ScreenDone
-// ─────────────────────────────────────────────
-import React, { useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+/**
+ * DoneScreen — Onboarding complete.
+ */
+import React from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { PetAvatar } from '@/components/pet/PetAvatar';
-import { Colors, FontSize, FontWeight, Spacing } from '@/constants/theme';
-import { useAuthStore } from '@/stores/authStore';
-
-const SPARKLES = ['✨', '★', '✦', '✧', '⭐'];
+import { useSound } from '@/components/SoundProvider';
+import { AppBackground } from '@/components/ui/AppBackground';
+import { FrostCard } from '@/components/ui/FrostCard';
+import { FocoBar } from '@/components/layout/FocoBar';
+import { Colors } from '@/constants/theme';
 
 export default function DoneScreen() {
   const router = useRouter();
-  const { login } = useAuthStore();
-  const glow = useRef(new Animated.Value(0.8)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(glow, { toValue: 1.05, duration: 1200, useNativeDriver: true }),
-        Animated.timing(glow, { toValue: 0.8, duration: 1200, useNativeDriver: true }),
-      ]),
-    ).start();
-  }, [glow]);
+  const { play } = useSound();
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
-        <View style={styles.hero}>
-          <Animated.View style={{ transform: [{ scale: glow }] }}>
-            <PetAvatar petKind="cat" size={200} animated />
-          </Animated.View>
+    <View style={styles.root}>
+      <AppBackground />
+      <FocoBar back />
 
-          {/* Sparkles */}
-          <View style={styles.sparkleContainer} pointerEvents="none">
-            {SPARKLES.map((s, i) => (
-              <Text
-                key={i}
-                style={[styles.sparkle, { top: `${20 + (i * 10) % 40}%` as any, left: `${10 + i * 18}%` as any }]}
-              >
-                {s}
-              </Text>
-            ))}
-          </View>
-
-          <View style={styles.textGroup}>
-            <Text style={styles.title}>Hi there —</Text>
-            <Text style={styles.title}>meet your buddy</Text>
-            <Text style={styles.sub}>
-              Your first focus session unlocks their first growth stage. Ready?
-            </Text>
-            <Text style={styles.hint}>✦ Tap your pet to interact</Text>
+      <View style={styles.content}>
+        {/* Halo + sparkle */}
+        <View style={styles.heroWrap}>
+          <View style={styles.halo} />
+          <Text style={styles.heroEmoji}>✦</Text>
+          <View style={styles.sparkles}>
+            <Text style={[styles.sparkle, { top: -10, left: 10, fontSize: 14 }]}>✦</Text>
+            <Text style={[styles.sparkle, { top: 10, right: 10, fontSize: 10 }]}>✦</Text>
+            <Text style={[styles.sparkle, { bottom: 0, left: 30, fontSize: 18 }]}>✦</Text>
           </View>
         </View>
 
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.primaryBtn}
-            onPress={async () => {
-              // mock login — 後端串接前先用假 token 讓路由守衛通過
-              await login(
-                { accessToken: 'mock-token', refreshToken: 'mock-refresh' },
-                { id: '1', email: 'user@foco.app', nickname: 'Trainer', createdAt: new Date().toISOString() }
-              );
-              router.replace('/(app)/home');
-            }}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryBtnText}>Start my first session</Text>
-          </TouchableOpacity>
+        <Text style={styles.heading}>You're all set!</Text>
+        <Text style={styles.sub}>
+          Your account is ready.{'\n'}Time to start focusing.
+        </Text>
+
+        <View style={styles.cardWrap}>
+          <FrostCard radius={24}>
+            <View style={styles.statRow}>
+              <View style={styles.stat}>
+                <Text style={styles.statNum}>0</Text>
+                <Text style={styles.statLabel}>Sessions</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.stat}>
+                <Text style={styles.statNum}>Lv.1</Text>
+                <Text style={styles.statLabel}>Pet</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.stat}>
+                <Text style={styles.statNum}>0</Text>
+                <Text style={styles.statLabel}>Day streak</Text>
+              </View>
+            </View>
+          </FrostCard>
         </View>
+
+        <TouchableOpacity
+          style={styles.startBtn}
+          onPress={() => { play('transition_up'); router.replace('/(app)/home'); }}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.startBtnText}>START FOCUSING</Text>
+        </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.white },
-  container: { flex: 1, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
-  hero: {
-    flex: 1,
+  root: { flex: 1, backgroundColor: '#f6f4f4' },
+  content: {
+    flex: 1, paddingHorizontal: 22, paddingTop: 40,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.lg,
-    position: 'relative',
   },
-  sparkleContainer: {
-    position: 'absolute',
-    width: '100%',
-    height: '60%',
+  heroWrap: {
+    width: 120, height: 120,
+    position: 'relative', alignItems: 'center', justifyContent: 'center',
+    marginBottom: 28,
   },
-  sparkle: { position: 'absolute', fontSize: 20 },
-  textGroup: { alignItems: 'center', gap: Spacing.xs, maxWidth: 280 },
-  title: {
-    fontSize: FontSize.xxl,
-    fontWeight: FontWeight.bold,
-    color: Colors.textPrimary,
-    lineHeight: 34,
-    textAlign: 'center',
+  halo: {
+    position: 'absolute', width: 120, height: 120, borderRadius: 60,
+    backgroundColor: Colors.pinkHot, opacity: 0.15,
   },
-  sub: { fontSize: FontSize.md, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22, marginTop: Spacing.sm },
-  hint: { fontSize: FontSize.sm, color: Colors.textDisabled, fontWeight: FontWeight.medium, marginTop: Spacing.xs },
-  footer: { gap: Spacing.sm },
-  primaryBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 999,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
+  heroEmoji: { fontSize: 40, color: Colors.pinkHot },
+  sparkles: { position: 'absolute', width: '100%', height: '100%' },
+  sparkle: { position: 'absolute', color: Colors.pinkHot },
+  heading: {
+    fontFamily: 'Fraunces_600SemiBold',
+    fontSize: 32, fontWeight: '600', color: Colors.ink,
+    letterSpacing: -0.5, textAlign: 'center',
   },
-  primaryBtnText: { color: Colors.white, fontSize: FontSize.md, fontWeight: FontWeight.semibold },
+  sub: {
+    fontSize: 15, color: Colors.inkSoft, marginTop: 10,
+    textAlign: 'center', lineHeight: 22,
+  },
+  cardWrap: { width: '100%', marginTop: 32 },
+  statRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  stat: { alignItems: 'center', flex: 1 },
+  statNum: { fontSize: 22, fontWeight: '700', color: Colors.ink },
+  statLabel: { fontSize: 11, color: Colors.inkFaint, marginTop: 2, letterSpacing: 0.5 },
+  statDivider: { width: 0.5, height: 32, backgroundColor: 'rgba(20,16,28,0.1)' },
+  startBtn: {
+    marginTop: 32, width: '100%', paddingVertical: 18, borderRadius: 9999,
+    backgroundColor: Colors.ink, alignItems: 'center',
+    shadowColor: Colors.ink, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18, shadowRadius: 24, elevation: 6,
+  },
+  startBtnText: { fontSize: 14, fontWeight: '700', color: '#fff', letterSpacing: 3 },
 });

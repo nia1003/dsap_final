@@ -1,132 +1,167 @@
-// ─────────────────────────────────────────────
-// Login Screen — 已有帳號登入
-// ─────────────────────────────────────────────
+/**
+ * LoginScreen — Email + Password 登入
+ */
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '@/hooks/useAuth';
-import { Colors, FontSize, FontWeight, Spacing, Radius } from '@/constants/theme';
+import { useSound } from '@/components/SoundProvider';
+import { AppBackground } from '@/components/ui/AppBackground';
+import { FrostCard } from '@/components/ui/FrostCard';
+import { FocoBar } from '@/components/layout/FocoBar';
+import { Colors } from '@/constants/theme';
+import { authService } from '@/services/authService';
+import { useApiCall } from '@/hooks/useApiCall';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { play } = useSound();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const valid = email.includes('@') && password.length >= 6;
 
-  const handleLogin = async () => {
+  const { call: login, loading, blocked, cooldown } = useApiCall(async () => {
     if (!valid) return;
-    setLoading(true);
-    setError('');
     try {
-      await login({ email, password });
-    } catch (e: any) {
-      setError(e?.message ?? '登入失敗，請再試一次');
-    } finally {
-      setLoading(false);
+      await authService.login(email, password);
+      // 成功後 authStore.onAuthStateChange 觸發，_layout.tsx 路由守衛自動跳 Home
+    } catch (err: any) {
+      Alert.alert('登入失敗', err.message ?? '請確認信箱與密碼');
     }
-  };
+  });
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.root}>
+      <AppBackground />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backText}>‹ Back</Text>
-          </TouchableOpacity>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.content}>
+          <FocoBar back />
 
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.sub}>Sign in to your FOCO account.</Text>
+          <View style={styles.cardWrap}>
+            <FrostCard radius={32}>
+              <Text style={styles.heading}>Welcome back</Text>
+              <Text style={styles.sub}>Sign in to continue with your companion.</Text>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              {/* Email */}
+              <Text style={styles.label}>Email</Text>
+              <View style={styles.inputWrap}>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="you@example.com"
+                  placeholderTextColor={Colors.inkFaint}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <View style={styles.underline} />
+              </View>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor={Colors.textDisabled}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
+              {/* Password */}
+              <Text style={[styles.label, { marginTop: 20 }]}>Password</Text>
+              <View style={styles.pwRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••"
+                  placeholderTextColor={Colors.inkFaint}
+                  secureTextEntry={!showPw}
+                />
+                <TouchableOpacity onPress={() => { play('tap'); setShowPw((v) => !v); }} style={styles.eyeBtn}>
+                  <Text style={styles.eyeIcon}>{showPw ? '🙈' : '👁️'}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.underline} />
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.pwRow}>
-              <TextInput
-                style={[styles.input, { flex: 1, borderWidth: 0 }]}
-                placeholder="Your password"
-                placeholderTextColor={Colors.textDisabled}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPw}
-              />
-              <TouchableOpacity onPress={() => setShowPw((v) => !v)} style={styles.eyeBtn}>
-                <Text style={{ fontSize: 18 }}>{showPw ? '🙈' : '👁️'}</Text>
+              <TouchableOpacity
+                style={[styles.continueBtn, (!valid || blocked) && styles.disabled]}
+                disabled={!valid || blocked}
+                onPress={() => { play('transition_up'); login(); }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.continueBtnText}>
+                  {loading ? 'Signing in…' : blocked ? `WAIT ${cooldown}s` : 'SIGN IN →'}
+                </Text>
               </TouchableOpacity>
-            </View>
+
+              <TouchableOpacity
+                style={styles.switchBtn}
+                onPress={() => { play('tap'); router.replace('/(auth)/signup'); }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.switchText}>
+                  Don't have an account?{' '}
+                  <Text style={styles.switchLink}>Create one</Text>
+                </Text>
+              </TouchableOpacity>
+            </FrostCard>
           </View>
-
-          <TouchableOpacity>
-            <Text style={styles.forgotText}>Forgot password?</Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.primaryBtn, (!valid || loading) && styles.disabled]}
-            disabled={!valid || loading}
-            onPress={handleLogin}
-            activeOpacity={0.85}
-          >
-            {loading
-              ? <ActivityIndicator color={Colors.white} />
-              : <Text style={styles.primaryBtnText}>Sign in</Text>}
-          </TouchableOpacity>
         </View>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.white },
-  container: { padding: Spacing.lg, paddingTop: Spacing.xl, flexGrow: 1 },
-  backBtn: { marginBottom: Spacing.lg },
-  backText: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: FontWeight.medium },
-  title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginBottom: Spacing.xs },
-  sub: { fontSize: FontSize.md, color: Colors.textSecondary, marginBottom: Spacing.lg, lineHeight: 22 },
-  errorText: {
-    fontSize: FontSize.sm, color: Colors.error,
-    backgroundColor: '#FEF2F2', borderRadius: Radius.md,
-    padding: Spacing.sm, marginBottom: Spacing.md,
+  root: { flex: 1, backgroundColor: '#f6f4f4' },
+  content: { flex: 1, paddingHorizontal: 22, paddingTop: 54 },
+  cardWrap: { marginTop: 8 },
+  heading: {
+    fontFamily: 'Fraunces_500Medium',
+    fontSize: 26,
+    fontWeight: '500',
+    color: Colors.ink,
+    letterSpacing: -0.3,
   },
-  fieldGroup: { marginBottom: Spacing.md },
-  label: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.textSecondary, marginBottom: Spacing.xs, paddingLeft: 4 },
-  input: {
-    borderWidth: 1.5, borderColor: Colors.borderMid, borderRadius: Radius.md,
-    padding: Spacing.md, fontSize: FontSize.md, color: Colors.textPrimary, backgroundColor: Colors.white,
+  sub: { fontSize: 14, color: Colors.inkSoft, marginTop: 6 },
+  label: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.inkFaint,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginTop: 24,
   },
-  pwRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: Colors.borderMid, borderRadius: Radius.md, backgroundColor: Colors.white },
-  eyeBtn: { paddingHorizontal: Spacing.md },
-  forgotText: { fontSize: FontSize.sm, color: Colors.primaryMid, textAlign: 'right', marginTop: Spacing.xs },
-  footer: { padding: Spacing.lg, paddingTop: 0 },
-  primaryBtn: { backgroundColor: Colors.primary, borderRadius: 999, height: 52, alignItems: 'center', justifyContent: 'center' },
-  primaryBtnText: { color: Colors.white, fontSize: FontSize.md, fontWeight: FontWeight.semibold },
+  inputWrap: { paddingBottom: 4 },
+  input: { fontSize: 18, fontWeight: '500', color: Colors.ink, paddingVertical: 6 },
+  pwRow: { flexDirection: 'row', alignItems: 'center' },
+  eyeBtn: { paddingLeft: 12, paddingVertical: 6 },
+  eyeIcon: { fontSize: 18 },
+  underline: { height: 1.2, backgroundColor: 'rgba(20,16,28,0.15)', marginTop: 2 },
+  continueBtn: {
+    marginTop: 32,
+    paddingVertical: 16,
+    borderRadius: 9999,
+    backgroundColor: Colors.ink,
+    alignItems: 'center',
+    shadowColor: Colors.ink,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 6,
+  },
+  continueBtnText: { fontSize: 14, fontWeight: '700', color: '#fff', letterSpacing: 3 },
   disabled: { opacity: 0.4 },
+  switchBtn: { marginTop: 20, alignItems: 'center' },
+  switchText: { fontSize: 13, color: Colors.inkFaint },
+  switchLink: { color: Colors.ink, fontWeight: '600' },
 });

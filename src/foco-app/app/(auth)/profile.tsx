@@ -1,142 +1,148 @@
-// ─────────────────────────────────────────────
-// Profile Screen — 對應 ScreenProfile
-// ─────────────────────────────────────────────
+/**
+ * ProfileScreen — Register Step 3: Set name + password
+ * OTP 驗證後呼叫，補齊用戶名字與密碼
+ */
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-  KeyboardAvoidingView, Platform,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { OnboardingHeader } from '@/components/layout/OnboardingHeader';
-import { Colors, FontSize, FontWeight, Spacing, Radius } from '@/constants/theme';
-
-const ROLES = ['Student', 'Working pro', 'Creator', 'Other'];
-const DISTRACTIONS = ['Phone', 'Social media', 'Wandering thoughts', 'Other people', 'Tiredness'];
+import { useSound } from '@/components/SoundProvider';
+import { AppBackground } from '@/components/ui/AppBackground';
+import { FrostCard } from '@/components/ui/FrostCard';
+import { FocoBar } from '@/components/layout/FocoBar';
+import { Colors } from '@/constants/theme';
+import { supabase } from '@/lib/supabase';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const [nickname, setNickname] = useState('');
-  const [role, setRole] = useState('');
-  const [pains, setPains] = useState<string[]>([]);
+  const { play } = useSound();
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const valid = nickname.trim().length >= 2 && role !== '';
+  const canSubmit = name.trim().length > 0 && password.length >= 6 && !loading;
 
-  const togglePain = (d: string) => {
-    setPains((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+  const handleContinue = async () => {
+    if (!canSubmit) return;
+    play('transition_up');
+    try {
+      setLoading(true);
+      // 更新密碼與名字到 Supabase auth user
+      const { error } = await supabase.auth.updateUser({
+        password,
+        data: { name: name.trim() },
+      });
+      if (error) throw error;
+      router.push('/(auth)/focus-type');
+    } catch (err: any) {
+      Alert.alert('設定失敗', err.message ?? '請稍後再試');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.root}>
+      <AppBackground />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <OnboardingHeader step={2} />
+        <View style={styles.content}>
+          <FocoBar back />
 
-          <Text style={styles.title}>Tell us about you</Text>
-          <Text style={styles.sub}>Your pet will use your nickname.</Text>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+            <FrostCard radius={32}>
+              <Text style={styles.heading}>Set up your profile</Text>
+              <Text style={styles.sub}>Almost there — just a few more details.</Text>
 
-          {/* Nickname */}
-          <Text style={styles.label}>Nickname</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Mochi"
-            placeholderTextColor={Colors.textDisabled}
-            value={nickname}
-            onChangeText={setNickname}
-          />
+              {/* Name */}
+              <Text style={styles.fieldLabel}>YOUR NAME</Text>
+              <View style={styles.inputWrap}>
+                <TextInput
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="What shall we call you?"
+                  placeholderTextColor={Colors.inkFaint}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
+                <View style={styles.underline} />
+              </View>
 
-          {/* Role */}
-          <Text style={[styles.label, { marginTop: Spacing.lg }]}>I'm mostly a…</Text>
-          <View style={styles.chips}>
-            {ROLES.map((r) => (
+              {/* Password */}
+              <Text style={[styles.fieldLabel, { marginTop: 22 }]}>SET A PASSWORD</Text>
+              <View style={styles.pwRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="At least 6 characters"
+                  placeholderTextColor={Colors.inkFaint}
+                  secureTextEntry={!showPw}
+                />
+                <TouchableOpacity onPress={() => { play('tap'); setShowPw((v) => !v); }} style={styles.eyeBtn}>
+                  <Text style={styles.eyeIcon}>{showPw ? '🙈' : '👁️'}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.underline} />
+              <Text style={styles.pwHint}>You'll use this to sign in next time.</Text>
+
               <TouchableOpacity
-                key={r}
-                style={[styles.chip, role === r && styles.chipSelected]}
-                onPress={() => setRole(r)}
-                activeOpacity={0.7}
+                style={[styles.continueBtn, !canSubmit && styles.disabled]}
+                onPress={handleContinue}
+                disabled={!canSubmit}
+                activeOpacity={0.85}
               >
-                <Text style={[styles.chipText, role === r && styles.chipTextSelected]}>{r}</Text>
+                <Text style={styles.continueBtnText}>
+                  {loading ? 'SAVING…' : 'CONTINUE →'}
+                </Text>
               </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Distractions */}
-          <Text style={[styles.label, { marginTop: Spacing.lg }]}>
-            Biggest distraction <Text style={{ color: Colors.textDisabled }}>(optional)</Text>
-          </Text>
-          <View style={styles.chips}>
-            {DISTRACTIONS.map((d) => (
-              <TouchableOpacity
-                key={d}
-                style={[styles.chip, pains.includes(d) && styles.chipSelected]}
-                onPress={() => togglePain(d)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.chipText, pains.includes(d) && styles.chipTextSelected]}>{d}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.primaryBtn, !valid && styles.disabled]}
-            disabled={!valid}
-            onPress={() => router.push('/(auth)/pet')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryBtnText}>Continue</Text>
-          </TouchableOpacity>
+            </FrostCard>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.white },
-  container: { padding: Spacing.lg, paddingTop: Spacing.xl, flexGrow: 1 },
-  title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginBottom: Spacing.xs },
-  sub: { fontSize: FontSize.md, color: Colors.textSecondary, marginBottom: Spacing.lg, lineHeight: 22 },
-  label: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.medium,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.sm,
-    paddingLeft: 4,
+  root: { flex: 1, backgroundColor: '#f6f4f4' },
+  content: { flex: 1, paddingHorizontal: 22, paddingTop: 54 },
+  scrollContent: { paddingBottom: 40 },
+  heading: {
+    fontFamily: 'Fraunces_500Medium',
+    fontSize: 26, fontWeight: '500', color: Colors.ink, letterSpacing: -0.3,
   },
-  input: {
-    borderWidth: 1.5,
-    borderColor: Colors.borderMid,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
-    backgroundColor: Colors.white,
+  sub: { fontSize: 14, color: Colors.inkSoft, marginTop: 6 },
+  fieldLabel: {
+    fontSize: 10, fontWeight: '700', color: Colors.inkFaint,
+    letterSpacing: 1.6, textTransform: 'uppercase', marginTop: 28, marginBottom: 8,
   },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  chip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Colors.borderMid,
-    backgroundColor: Colors.white,
+  inputWrap: { paddingBottom: 8 },
+  input: { fontSize: 17, fontWeight: '500', color: Colors.ink, paddingVertical: 4 },
+  pwRow: { flexDirection: 'row', alignItems: 'center' },
+  eyeBtn: { paddingLeft: 12, paddingVertical: 6 },
+  eyeIcon: { fontSize: 18 },
+  underline: { height: 1.2, backgroundColor: 'rgba(20,16,28,0.18)', marginTop: 4 },
+  pwHint: { fontSize: 11, color: Colors.inkFaint, marginTop: 8 },
+  continueBtn: {
+    marginTop: 28, paddingVertical: 16, borderRadius: 9999,
+    backgroundColor: Colors.ink, alignItems: 'center',
+    shadowColor: Colors.ink, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18, shadowRadius: 24, elevation: 6,
   },
-  chipSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  chipText: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.textPrimary },
-  chipTextSelected: { color: Colors.white },
-  footer: { padding: Spacing.lg, paddingTop: 0 },
-  primaryBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 999,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryBtnText: { color: Colors.white, fontSize: FontSize.md, fontWeight: FontWeight.semibold },
+  continueBtnText: { fontSize: 14, fontWeight: '700', color: '#fff', letterSpacing: 3 },
   disabled: { opacity: 0.4 },
 });

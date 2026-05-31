@@ -1,68 +1,112 @@
 // ─────────────────────────────────────────────
-// Auth Store — 登入狀態、Token 管理
+// Auth Store — Supabase session 管理
+// 取代原本的 SecureStore JWT 版本
 // ─────────────────────────────────────────────
 import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
-import { TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/constants/config';
-import type { AuthTokens, UserProfile } from '@/types';
+import { clearLocalSupabaseSession, getCurrentSession, isStaleAuthSessionError, supabase } from '@/lib/supabase';
+import { usePetStore } from '@/stores/petStore';
+
+let authStateSubscription: { unsubscribe: () => void } | null = null;
 
 interface AuthState {
-  // State
   isAuthenticated: boolean;
   isLoading: boolean;
-  accessToken: string | null;
-  refreshToken: string | null;
-  user: UserProfile | null;
+  userId: string | null;
+  userEmail: string | null;
+  userName: string | null;
 
-  // Actions
-  login: (tokens: AuthTokens, user: UserProfile) => Promise<void>;
-  logout: () => Promise<void>;
   restoreSession: () => Promise<void>;
-  setUser: (user: UserProfile) => void;
+  updateProfile: (payload: { name?: string; avatarUrl?: string | null }) => Promise<{ error?: string }>;
+  logout: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: true,
-  accessToken: null,
-  refreshToken: null,
-  user: null,
-
-  login: async (tokens, user) => {
-    await SecureStore.setItemAsync(TOKEN_KEY, tokens.accessToken);
-    await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken);
-    set({
-      isAuthenticated: true,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      user,
-    });
-  },
-
-  logout: async () => {
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-    set({
-      isAuthenticated: false,
-      accessToken: null,
-      refreshToken: null,
-      user: null,
-    });
-  },
+  userId: null,
+  userEmail: null,
+  userName: null,
 
   restoreSession: async () => {
     try {
-      const accessToken = await SecureStore.getItemAsync(TOKEN_KEY);
-      const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-      if (accessToken && refreshToken) {
-        set({ isAuthenticated: true, accessToken, refreshToken });
+      const session = await getCurrentSession();
+
+      set({
+        isAuthenticated: !!session,
+        userId: session?.user.id ?? null,
+        userEmail: session?.user.email ?? null,
+        userName: (session?.user.user_metadata?.name as string) ?? null,
+        isLoading: false,
+      });
+
+      // 監聽後續的登入 / 登出事件
+      authStateSubscription?.unsubscribe();
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        // When the SDK can't refresh the token it emits SIGNED_OUT with no session.
+        // Clear the stale AsyncStorage entry so the error doesn't repeat on restart.
+        if (!session && (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED')) {
+          clearLocalSupabaseSession().catch(() => {});
+        }
+        set({
+          isAuthenticated: !!session,
+          userId: session?.user.id ?? null,
+          userEmail: session?.user.email ?? null,
+          userName: (session?.user.user_metadata?.name as string) ?? null,
+        });
+        // Clear pet cache on logout so a new user never sees the previous user's pets
+        if (!session) usePetStore.getState().reset();
+      });
+      authStateSubscription = data.subscription;
+    } catch (error) {
+      if (isStaleAuthSessionError(error)) {
+        await clearLocalSupabaseSession();
       }
-    } catch {
-      // Token 讀取失敗，保持未登入狀態
-    } finally {
-      set({ isLoading: false });
+      set({
+        isAuthenticated: false,
+        userId: null,
+        userEmail: null,
+        userName: null,
+        isLoading: false,
+      });
+      usePetStore.getState().reset();
     }
   },
 
-  setUser: (user) => set({ user }),
+  updateProfile: async ({ name, avatarUrl }) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return { error: 'Not signed in' };
+
+      const meta = { ...(user.user_metadata ?? {}) } as Record<string, unknown>;
+      if (name !== undefined) meta.name = name.trim();
+      if (avatarUrl !== undefined) {
+        if (avatarUrl) meta.avatar_url = avatarUrl;
+        else delete meta.avatar_url;
+      }
+
+      const { data, error } = await supabase.auth.updateUser({ data: meta });
+      if (error) return { error: error.message };
+
+      set({
+        userName: (data.user?.user_metadata?.name as string) ?? null,
+      });
+      return {};
+    } catch {
+      return { error: 'Update failed' };
+    }
+  },
+
+  logout: async () => {
+    await supabase.auth.signOut().catch(async (error) => {
+      if (isStaleAuthSessionError(error)) {
+        await clearLocalSupabaseSession();
+        return;
+      }
+      throw error;
+    });
+    set({ isAuthenticated: false, userId: null, userEmail: null, userName: null });
+    usePetStore.getState().reset();
+  },
 }));

@@ -1,136 +1,403 @@
-// ─────────────────────────────────────────────
-// Mission List Screen — 對應 ScreenMissions
-// ─────────────────────────────────────────────
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput } from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppHeader } from '@/components/layout/AppHeader';
-import { TabBar } from '@/components/layout/TabBar';
-import { useGameStore } from '@/stores/gameStore';
-import { Colors, FontSize, FontWeight, Spacing, Radius } from '@/constants/theme';
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Trash2 } from 'lucide-react-native';
+import { FocoBar } from '@/components/layout/FocoBar';
+import { useAuthStore } from '@/stores/authStore';
+import { usePetStore } from '@/stores/petStore';
+import { usePreferencesStore } from '@/stores/preferencesStore';
+import { useTaskStore } from '@/stores/taskStore';
+import { useSound } from '@/components/SoundProvider';
+import { useFocusLaunch } from '@/hooks/useFocusLaunch';
+import type { FocusQuickSetupValue } from '@/components/home/FocusQuickSetup';
+import { deleteTask } from '@/services/focoService';
+import { mockPets } from '@/data/mockData';
+import { AddTaskModal } from '@/components/tasks/AddTaskModal';
+import { TaskIcon } from '@/components/tasks/TaskIcon';
+import { TaskDetailModal } from '../../../components/tasks/TaskDetailModal';
+import { resolveTaskIcon } from '@/lib/taskIcon';
+import type { Task } from '@/types';
 
-// Fallback sample missions（API 未載入前）
-const SAMPLE_MISSIONS = [
-  { id: '1', title: 'Finish thesis chapter 3', tag: 'Study',   focus: '2h 15m', xp: 320 },
-  { id: '2', title: 'Read "Deep Work" Ch.5',   tag: 'Reading', focus: '0h 45m', xp: 80  },
-  { id: '3', title: 'Refactor checkout flow',  tag: 'Work',    focus: '4h 10m', xp: 540 },
-  { id: '4', title: 'Practice piano scales',   tag: 'Hobby',   focus: '0h 20m', xp: 40  },
-];
+const BG   = '#FFFFFF';
+const INK  = '#1a1622';
+const CARD = '#F2F2F2';
+const BTN_SIZE = 36;
 
-export default function MissionsScreen() {
-  const router = useRouter();
-  const { missions } = useGameStore();
-  const [search, setSearch] = React.useState('');
+type TabType = 'task' | 'daily';
 
-  const list = missions.length > 0 ? missions : SAMPLE_MISSIONS as any;
-  const filtered = search
-    ? list.filter((m: any) => m.title.toLowerCase().includes(search.toLowerCase()))
-    : list;
+function formatDeadline(deadlineAt: string | null | undefined): { label: string; overdue: boolean } | null {
+  if (!deadlineAt) return null;
+  const diffDays = Math.ceil((new Date(deadlineAt).getTime() - Date.now()) / 86_400_000);
+  if (diffDays < 0) return { label: 'overdue', overdue: true };
+  if (diffDays === 0) return { label: 'due today', overdue: false };
+  if (diffDays === 1) return { label: '1 day left', overdue: false };
+  return { label: `${diffDays} days left`, overdue: false };
+}
+
+function MissionTaskCard({
+  task,
+  onOpen,
+  onStart,
+  onDelete,
+}: {
+  task: Task;
+  onOpen: () => void;
+  onStart: () => void;
+  onDelete: () => void;
+}) {
+  const deadline = formatDeadline(task.deadline_at);
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <AppHeader
-        title="Missions"
-        showBack
-        action={
-          <TouchableOpacity style={styles.addBtn}>
-            <Text style={styles.addBtnText}>+</Text>
-          </TouchableOpacity>
-        }
-      />
+    <View style={s.taskCard}>
+      <TouchableOpacity style={s.taskOpenArea} onPress={onOpen} activeOpacity={0.78}>
+        <View style={s.taskTextBlock}>
+          <Text style={s.taskTitle} numberOfLines={2}>{task.title}</Text>
+          {deadline ? (
+            <Text style={[s.deadlineBadge, deadline.overdue && s.deadlineOverdue]} numberOfLines={1}>
+              {deadline.label}
+            </Text>
+          ) : null}
+        </View>
+      </TouchableOpacity>
 
-      {/* Search Bar */}
-      <View style={styles.searchBar}>
-        <Text style={{ fontSize: 16, marginRight: Spacing.xs }}>🔍</Text>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search missions…"
-          placeholderTextColor={Colors.textDisabled}
-          value={search}
-          onChangeText={setSearch}
-        />
-        <Text style={styles.sortBtn}>Sort ▾</Text>
+      <TouchableOpacity
+        style={s.deleteBtn}
+        onPress={onDelete}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Trash2 size={16} color="rgba(26,22,34,0.40)" />
+      </TouchableOpacity>
+
+      <View style={s.taskIconWrap}>
+        <TaskIcon icon={resolveTaskIcon(task)} size={22} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-        {filtered.map((m: any) => (
-          <TouchableOpacity
-            key={m.id}
-            style={styles.card}
-            onPress={() => router.push({ pathname: '/(app)/missions/[id]', params: { id: m.id, title: m.title } })}
-            activeOpacity={0.7}
-          >
-            <View style={styles.cardIcon}>
-              <Text style={{ fontSize: 16 }}>📌</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle} numberOfLines={1}>{m.title}</Text>
-              <View style={styles.cardMeta}>
-                <Text style={styles.metaText}>{m.tag ?? 'Mission'}</Text>
-                <Text style={styles.metaDot}>·</Text>
-                <Text style={styles.metaText}>{m.focus ?? `${m.durationSeconds ?? 0}s`}</Text>
-              </View>
-            </View>
-            <Text style={styles.xpBadge}>+{m.xp ?? m.reward?.experience ?? 0} XP</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <TabBar />
-    </SafeAreaView>
+      <TouchableOpacity
+        style={s.startBtn}
+        onPress={onStart}
+        activeOpacity={0.8}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={s.startIcon}>→</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.white },
-  searchBar: {
+export default function MissionsScreen() {
+  const [tab, setTab]                 = useState<TabType>('task');
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  const { userId, userName, userEmail } = useAuthStore();
+  const { pets, activePet }             = usePetStore();
+  const { play }                        = useSound();
+  const { launchFocus }                 = useFocusLaunch();
+  const focusDurationMin                = usePreferencesStore((s) => s.focusDurationMin);
+  const avatarUri                       = usePreferencesStore((s) => s.avatarUri);
+  const { tasks, addTask, removeTask, fetchTasks } = useTaskStore();
+
+  const displayName    = userName ?? userEmail?.split('@')[0] ?? '?';
+  const settingsAvatar = displayName[0]?.toUpperCase() ?? '?';
+  const modalPets      = pets.length > 0 ? pets : mockPets.slice(0, 1);
+
+  useEffect(() => { fetchTasks(userId).catch(() => {}); }, [userId, fetchTasks]);
+
+  const pendingTasks = tasks.filter((t) => t.status === 'pending');
+  const tabTasks     = pendingTasks.filter((t) => (t.category ?? 'task') === tab);
+
+  const buildSetup = (partial: Partial<FocusQuickSetupValue>): FocusQuickSetupValue => ({
+    taskMode: 'none',
+    selectedTaskId: null,
+    newIconType: 'emoji',
+    newIcon: '📌',
+    newTitle: '',
+    newMemo: '',
+    selectedPetId: activePet?.id ?? modalPets[0]?.id ?? null,
+    durationMin: focusDurationMin,
+    ...partial,
+  });
+
+  const startFocus = async (partial: Partial<FocusQuickSetupValue>) => {
+    play('tap');
+    await launchFocus(buildSetup(partial), pendingTasks);
+  };
+
+  const handleDeleteTask = (taskId: string, taskTitle: string) => {
+    Alert.alert(
+      'Delete task',
+      `Delete "${taskTitle}"?\nFocus sessions will stay in your history.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: () => {
+            removeTask(taskId);
+            deleteTask(taskId).catch(() =>
+              Alert.alert('Delete failed', 'Network error. Please try again.'),
+            );
+          },
+        },
+      ],
+    );
+  };
+
+  return (
+    <View style={s.root}>
+      <FocoBar avatar={settingsAvatar} avatarUri={avatarUri} />
+
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header */}
+        <View style={s.titleRow}>
+          <Text style={s.title}>Tasks</Text>
+          <TouchableOpacity
+            style={s.addBtn}
+            onPress={() => { play('tap'); setAddTaskOpen(true); }}
+            activeOpacity={0.8}
+          >
+            <Text style={s.addBtnText}>+ Task</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Tabs */}
+        <View style={s.tabs}>
+          {(['task', 'daily'] as TabType[]).map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[s.tabPill, tab === t && s.tabPillActive]}
+              onPress={() => { play('tap'); setTab(t); }}
+              activeOpacity={0.75}
+            >
+              <Text style={[s.tabLabel, tab === t && s.tabLabelActive]}>
+                {t === 'task' ? 'Deadline' : 'Daily'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Task list */}
+        <Text style={s.sectionLabel}>my tasks</Text>
+
+        {tabTasks.length === 0 && (
+          <View style={[s.taskCard, s.emptyCard]}>
+            <Text style={s.emptyText}>
+              No {tab === 'task' ? 'deadline' : 'daily'} tasks yet.
+            </Text>
+          </View>
+        )}
+
+        {false && tabTasks.map((task: Task) => (
+          <View key={task.id} style={s.taskCard}>
+            <TouchableOpacity
+              style={s.taskInfoPressable}
+              onPress={() => { play('tap'); setSelectedTaskId(task.id); }}
+              activeOpacity={0.78}
+            >
+              <View style={s.taskIconWrap}>
+                <Text style={s.taskIconText}>📌</Text>
+              </View>
+              <View style={s.taskInfo}>
+                <Text style={s.taskTitle}>{task.title}</Text>
+                <Text style={s.taskSub}>{task.duration_min} min</Text>
+                {task.memo ? (
+                  <Text style={s.taskMemo} numberOfLines={1}>{task.memo}</Text>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+            <View style={s.taskActions}>
+              <TouchableOpacity
+                style={s.startBtn}
+                onPress={() => startFocus({ taskMode: 'existing', selectedTaskId: task.id })}
+                activeOpacity={0.8}
+              >
+                <Text style={s.startIcon}>→</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.deleteBtn}
+                onPress={() => { play('tap'); handleDeleteTask(task.id, task.title); }}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Trash2 size={16} color="rgba(26,22,34,0.40)" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+
+        {tabTasks.length > 0 && (
+          <View style={s.taskGrid}>
+            {tabTasks.map((task: Task) => (
+              <MissionTaskCard
+                key={task.id}
+                task={task}
+                onOpen={() => { play('tap'); setSelectedTaskId(task.id); }}
+                onStart={() => startFocus({ taskMode: 'existing', selectedTaskId: task.id })}
+                onDelete={() => { play('tap'); handleDeleteTask(task.id, task.title); }}
+              />
+            ))}
+          </View>
+        )}
+      </ScrollView>
+
+      <AddTaskModal
+        visible={addTaskOpen}
+        defaultDurationMin={focusDurationMin}
+        userId={userId}
+        onClose={() => setAddTaskOpen(false)}
+        onCreated={(task) => { addTask(task); }}
+      />
+
+      <TaskDetailModal
+        visible={selectedTaskId !== null}
+        taskId={selectedTaskId}
+        onClose={() => setSelectedTaskId(null)}
+      />
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: BG },
+  scroll: { flex: 1 },
+  content: { paddingHorizontal: 20, paddingBottom: 120 },
+
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    margin: Spacing.lg,
-    marginTop: Spacing.xs,
-    backgroundColor: Colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.lg,
-    paddingHorizontal: Spacing.md,
-    height: 44,
+    justifyContent: 'space-between',
+    marginTop: 12,
+    marginBottom: 4,
   },
-  searchInput: { flex: 1, fontSize: FontSize.md, color: Colors.textPrimary },
-  sortBtn: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.textSecondary },
-  list: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: Spacing.sm },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
+  title: {
+    fontFamily: 'Fraunces_500Medium',
+    fontSize: 42,
+    fontWeight: '500',
+    color: INK,
+    letterSpacing: -0.5,
   },
-  cardIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardTitle: { fontSize: FontSize.md, fontWeight: FontWeight.medium, color: Colors.textPrimary },
-  cardMeta: { flexDirection: 'row', gap: Spacing.sm, marginTop: 2 },
-  metaText: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  metaDot: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  xpBadge: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.primaryMid },
   addBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    backgroundColor: Colors.primary,
+    height: BTN_SIZE,
+    backgroundColor: '#111111',
+    borderRadius: 9999,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addBtnText: { color: Colors.white, fontSize: 20, lineHeight: 24 },
+  addBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+
+  tabs: { flexDirection: 'row', gap: 8, marginTop: 16, marginBottom: 4 },
+  tabPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 9999,
+    backgroundColor: CARD,
+  },
+  tabPillActive: { backgroundColor: '#111111' },
+  tabLabel: { fontSize: 13, fontWeight: '500', color: 'rgba(26,22,34,0.55)' },
+  tabLabelActive: { color: '#ffffff', fontWeight: '600' },
+
+  sectionLabel: {
+    fontSize: 13,
+    color: 'rgba(26,22,34,0.55)',
+    letterSpacing: 0.2,
+    marginTop: 24,
+    marginBottom: 12,
+  },
+
+  taskCard: {
+    width: '48%',
+    height: 135,
+    backgroundColor: CARD,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    position: 'relative',
+  },
+  taskGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  emptyCard: { width: '100%', height: 'auto', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 16 },
+  taskOpenArea: {
+    flex: 1,
+  },
+  taskTextBlock: {
+    paddingRight: 24,
+    alignItems: 'flex-start',
+  },
+  taskInfoPressable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  taskIconWrap: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(26,22,34,0.07)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskIconText: { fontSize: 18 },
+  taskInfo: { flex: 1 },
+  taskTitle: { fontSize: 13, fontWeight: '700', color: INK, lineHeight: 17 },
+  taskSub: { fontSize: 12, color: 'rgba(26,22,34,0.45)', marginTop: 2 },
+  taskMemo: {
+    fontSize: 11,
+    color: 'rgba(26,22,34,0.40)',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  emptyText: { fontSize: 13, color: 'rgba(26,22,34,0.40)', textAlign: 'center', paddingVertical: 8 },
+
+  taskActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  startBtn: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: BTN_SIZE,
+    height: BTN_SIZE,
+    borderRadius: BTN_SIZE / 2,
+    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startIcon: { fontSize: 16, color: '#ffffff', fontWeight: '700' },
+  deleteBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    padding: 4,
+  },
+  deadlineBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#7C4DCC',
+    letterSpacing: 0.1,
+    marginTop: 4,
+  },
+  deadlineOverdue: {
+    color: '#CC4D4D',
+  },
 });

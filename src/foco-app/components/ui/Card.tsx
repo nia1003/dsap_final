@@ -29,10 +29,10 @@ export function Card({ children, style, elevated = true, padded = true }: CardPr
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
+    backgroundColor: Colors.glassChrome,
+    borderRadius: Radius['2xl'],
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.6)',
   },
   padded: { padding: Spacing.md },
 });

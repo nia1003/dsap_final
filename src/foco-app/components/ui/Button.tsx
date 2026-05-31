@@ -25,6 +25,7 @@ interface ButtonProps {
   fullWidth?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  accessibilityLabel?: string;
 }
 
 export function Button({
@@ -37,6 +38,7 @@ export function Button({
   fullWidth = false,
   style,
   textStyle,
+  accessibilityLabel,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
 
@@ -45,6 +47,9 @@ export function Button({
       onPress={onPress}
       disabled={isDisabled}
       activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: isDisabled }}
       style={[
         styles.base,
         styles[`size_${size}`],
@@ -72,7 +77,7 @@ const styles = StyleSheet.create({
   base: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: Radius.md,
+    borderRadius: Radius.full,
     flexDirection: 'row',
   },
   fullWidth: { width: '100%' },
@@ -85,7 +90,7 @@ const styles = StyleSheet.create({
 
   // Variants
   variant_primary: { backgroundColor: Colors.primary },
-  variant_secondary: { backgroundColor: Colors.secondary },
+  variant_secondary: { backgroundColor: Colors.primaryMid },
   variant_outline: {
     backgroundColor: 'transparent',
     borderWidth: 1.5,

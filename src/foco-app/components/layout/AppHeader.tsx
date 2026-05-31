@@ -45,17 +45,17 @@ const styles = StyleSheet.create({
   },
   backArrow: {
     fontSize: 28,
-    color: Colors.textPrimary,
+    color: Colors.ink,
     lineHeight: 32,
-    fontWeight: FontWeight.medium,
+    fontWeight: '500' as const,
   },
   placeholder: { width: 36, height: 36 },
   title: {
     flex: 1,
-    textAlign: 'center',
+    textAlign: 'center' as const,
     fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textPrimary,
+    fontWeight: '600' as const,
+    color: Colors.ink,
   },
   actionSlot: {
     width: 36,
