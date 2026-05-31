@@ -4,7 +4,7 @@
 
 ## Demo 影片
 
-[![FOCO Demo](https://img.youtube.com/vi/QzaL_yyi49Y/0.jpg)](https://youtu.be/QzaL_yyi49Y)
+[![FOCO Demo](https://img.youtube.com/vi/7hh-4Wnyvno/0.jpg)](https://youtu.be/7hh-4Wnyvno)
 
 ## 專案簡介
 
