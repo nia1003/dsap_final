@@ -382,26 +382,43 @@ getTopDistractions: () => {
 - [ ] 專注風格分類（根據分心紀錄累積後歸納類型標籤）
 
 ---
+# FOCO — Focus Companion
+## Final Report
+資料結構 · 期末專題 · 李亮節 · b11106001
+
+---
 
 ## Final Report
 
 ### 專案說明
 
-FOCO 是一款專為大學生與自由工作者設計的專注力養成行動應用程式，結合番茄鐘計時、微反思機制與虛擬寵物培育，形成「**專注 → 微反思 → 獎勵 → 回訪**」的正向循環。
+FOCO 是一款專為大學生與自由工作者設計的專注力養成行動應用程式，結合番茄鐘計時、行為數據追蹤與虛擬寵物培育，形成「**專注 → 微反思 → 獎勵 → 回訪**」的正向循環。
 
 #### 核心模組
 
 **1. 專注計時器（Timer）**
-使用者設定任務名稱與計時時長後啟動計時。時間結束後觸發微反思介面，引導使用者回答「這段時間完成了什麼？有分心嗎？」收集的數據用於統計分析；若提前中斷，可手動標記分心原因。完成後，專注輪次自動轉換為寵物成長素材（能量與金幣），獎勵進入背包，寵物狀態隨之更新。
+
+使用者設定任務名稱與計時時長後啟動計時。計時期間，App 透過 AppState API 自動記錄暫停次數（`pause_count`）、切出畫面次數（`switch_count`）與每次切出時長（`avg_switch_duration`）。時間結束後觸發微反思介面，引導使用者回答「這段時間完成了什麼？有分心嗎？」；若提前中斷，可手動標記分心原因。完成後，專注輪次自動呼叫 Edge Function `session-complete` 計算 XP 與品質分，獎勵進入背包，寵物狀態隨之更新。
 
 **2. 寵物系統（Pet）**
-每位使用者擁有一隻虛擬寵物，寵物等級與心情反映專注表現——連續完成任務可讓寵物升級，長時間未互動則情緒下滑。寵物以動態 emoji 呈現，具備浮動動畫與心情切換效果。
 
-**3. 個人風格洞察（Stats）**
-系統記錄每日與每週的專注時長、任務完成率、常見分心原因，顯示「你最近最常被什麼打斷」，並根據紀錄給予簡單建議（如：「你最容易在下午分心，試試把重要任務排在早上」）。
+每位使用者擁有一隻虛擬寵物，寵物等級與心情反映專注表現——連續完成任務可讓寵物升級，長時間未互動則情緒下滑。寵物支援聊天功能，透過 Edge Function `pet-chat` 呼叫 Together AI（Meta-Llama-3-8B）產生回應。
+
+**3. DISC 個人風格洞察（Stats）**
+
+系統從 `sessions` table 讀取累積行為數據，計算三個衍生特徵：
+
+- `focus_score = total_focus_time / (pause_count + switch_count + 1)` → 專注深度
+- `distraction_rate = switch_count / total_focus_time` → 分心頻率
+- `recovery_speed = 1 / avg_switch_duration` → 切出後回來的速度
+
+這三個特徵透過 Weighted Score 演算法（詳見課程關聯章節）映射到 DISC 四個類型，並以跨 session Sliding Window 提升分類穩定性。Stats 頁面同時顯示每日與每週專注時長、分心原因分佈，以及首頁統計數據（本週次數、今日專注、連續天數）。
 
 **4. 背包系統（Backpack）**
+
 完成任務獲得的道具存放於背包，可用於補充寵物能量或提升下次任務的獎勵倍率。
+
+---
 
 #### 技術架構
 
@@ -415,14 +432,54 @@ foco-app/
 │   ├── authStore.ts         # 登入狀態、Token 管理（SecureStore 持久化）
 │   ├── userStore.ts         # 使用者資料、寵物狀態、等級計算
 │   └── gameStore.ts         # 任務倒數、背包道具
-├── services/                # Axios API 層（auth、user、game）
+├── services/                # @supabase/supabase-js API 層
 ├── components/              # 共用元件（PetAvatar、AppHeader 等）
 └── constants/theme.ts       # Design Tokens（顏色、字體、間距、圓角）
 ```
 
+| 層級 | 技術 |
+|------|------|
+| 框架 | React Native（Expo SDK 54） |
+| 路由 | Expo Router v6（file-based routing） |
+| 狀態管理 | Zustand v5 |
+| HTTP / 後端 | @supabase/supabase-js v2 |
+| 後端平台 | Supabase（PostgreSQL + Row Level Security） |
+| Edge Functions | Deno runtime（`session-complete`、`pet-chat`） |
+| AI 聊天 | Together AI API（Meta-Llama-3-8B） |
+| 本地儲存 | expo-secure-store（Token）、AsyncStorage（快取） |
+| CI/CD | GitHub Actions（typecheck + EAS Build） |
+| 語言 | TypeScript |
+| 樣式 | StyleSheet（自定義 Design Tokens） |
+
+---
+
+#### 資料庫 Tables
+
+| Table | 用途 | 重要欄位 |
+|-------|------|----------|
+| `auth.users` | Supabase 內建認證 | — |
+| `public.users` | 擴充用戶資料（Trigger 自動建） | nickname, avatar |
+| `public.pets` | 每位用戶的寵物 | level, xp, mood |
+| `public.tasks` | 任務管理 | title, duration_min, category, deadline_at, memo |
+| `public.sessions` | 專注紀錄 | actual_duration, quality_score, xp_earned |
+| `public.session_events` | 事件時間軸 | event_type（pause/resume/left_app）, timestamp |
+
+---
+
+#### 部署狀態
+
+| 項目 | 狀態 | 說明 |
+|------|------|------|
+| 資料庫 | ✅ 線上 | Supabase project `foco-app`，region `ap-northeast-1` |
+| Edge Functions | ✅ 已部署 | `session-complete`、`pet-chat` |
+| 前端 | ✅ EAS Build | GitHub Actions CI/CD，自動 typecheck + build |
+| Auth | ✅ 已部署 | Email OTP + password，`onAuthStateChange` + AsyncStorage |
+
+---
+
 ### Demo 影片
 
-> YouTube 連結：<!-- 請貼上影片連結 -->
+> YouTube 連結：<!-- 請補上連結 -->
 
 ---
 
@@ -454,6 +511,422 @@ npx expo start --clear
 3. 掃描 terminal 顯示的 QR Code
 4. App 即自動載入，支援 Hot Reload（存檔即更新）
 
+---
+
+## 課程關聯 — 資料結構分析
+
+FOCO 各核心模組的狀態以 Zustand store 集中管理。本章節針對兩個核心功能進行完整的資料結構比較分析：（A）分心原因統計，以及（B）DISC 風格分析演算法設計。
+
+---
+
+### A. 深度分析：分心原因統計（Top Distractions）
+
+#### 功能描述
+
+每次計時結束後，使用者從 6 個選項中選出這次最主要的分心原因；Stats 頁面即時顯示「你最常被什麼打斷」排行榜，並計算各原因的佔比百分比。此功能涉及兩個核心操作：
+
+- **寫入（record）**：每次計時結束觸發一次，記錄一個分心原因
+- **查詢（query）**：每次進入 Stats 頁面時觸發，需取得排序後的頻率列表
+
+設 n = 使用者的歷史分心紀錄總筆數，k = 不同原因的種類數（FOCO 固定為 6 種）。
+
+---
+
+#### 方案 A — 原始陣列（Flat Array）
+
+每次記錄分心時，將原因字串直接 push 進一個陣列。
+
+```ts
+// 資料結構
+distractionLog: string[]
+// e.g. ['Phone', 'Tiredness', 'Phone', 'Phone', 'Wandering thoughts', ...]
+
+// 寫入
+recordDistraction: (reason) => {
+  set({ distractionLog: [...get().distractionLog, reason] });
+}
+
+// 查詢（每次進 Stats 頁都重新掃描）
+getTopDistractions: () => {
+  const log = get().distractionLog;          // n 筆
+  const countMap: Record<string, number> = {};
+  for (const r of log) {                     // O(n)
+    countMap[r] = (countMap[r] ?? 0) + 1;
+  }
+  return Object.entries(countMap)
+    .map(([reason, count]) => ({ reason, count, pct: count / log.length }))
+    .sort((a, b) => b.count - a.count);      // O(k log k)，k=6 → 常數
+}
+```
+
+| 操作 | 時間複雜度 | 說明 |
+|------|-----------|------|
+| 寫入 | O(1) | Array spread 附加到尾端 |
+| 查詢 | **O(n)** | 每次都要掃描全部 n 筆歷史紀錄 |
+| 空間 | **O(n)** | 完整保留每一筆紀錄字串 |
+
+**問題：** 查詢成本隨使用者紀錄累積線性增長。假設使用者每天做 4 次番茄鐘，連用 6 個月後 n ≈ 720，每次進 Stats 頁都要掃 720 個字串。
+
+---
+
+#### 方案 B — 預計算 HashMap（目前實作）✅
+
+不儲存每一筆原始字串，改為在寫入時直接累加計數，以 `reason` 字串為 key，次數為 value。
+
+```ts
+// 資料結構
+distractionMap: Record<string, number>
+// e.g. { Phone: 47, Tiredness: 18, 'Wandering thoughts': 22, ... }
+
+// 寫入：O(1)，直接 key lookup 並遞增
+recordDistraction: (reason) => {
+  const map = get().distractionMap;
+  set({ distractionMap: { ...map, [reason]: (map[reason] ?? 0) + 1 } });
+}
+
+// 查詢：O(k log k)，k=6 固定，實質為 O(1)
+getTopDistractions: () => {
+  const map = get().distractionMap;
+  const total = Object.values(map).reduce((s, n) => s + n, 0);  // O(k)
+  if (total === 0) return [];
+  return Object.entries(map)
+    .map(([reason, count]) => ({ reason, count, pct: count / total }))
+    .sort((a, b) => b.count - a.count);  // O(k log k)，k≤6
+}
+```
+
+| 操作 | 時間複雜度 | 說明 |
+|------|-----------|------|
+| 寫入 | O(1) | Hash key 存取，一次遞增 |
+| 查詢 | **O(k log k) ≈ O(1)** | k=6 固定，與 n 無關 |
+| 空間 | **O(k)** | 只存 6 個計數值，不隨 n 增長 |
+
+**優勢：** 查詢成本完全與歷史紀錄筆數 n 脫鉤。無論使用者用了 1 個月還是 1 年，每次查詢只需處理 6 個 key。
+
+---
+
+#### 方案 C — Min-Heap（Top-K 情境的極致優化）
+
+若未來分心原因種類數 k 不再固定（如開放自定義原因），且只需取前 K 名（K << k），可使用 Min-Heap：維護一個大小為 K 的最小堆，每次插入新原因時只保留 top K，避免對所有 k 個原因排序。
+
+| 操作 | 時間複雜度 |
+|------|-----------|
+| 寫入 | O(log K) |
+| 查詢 Top-K | O(K log K) |
+| 空間 | O(K) |
+
+**FOCO 的選擇：** k 固定為 6，K = 5，Min-Heap 相比方案 B 帶來的改善不顯著，且實作成本高（JavaScript 無內建 Heap，需手刻）。方案 B 在此場景已是最佳實際選擇。
+
+---
+
+#### 三方案效能比較總結
+
+| | 方案 A（Flat Array） | 方案 B（HashMap）✅ | 方案 C（Min-Heap） |
+|---|---|---|---|
+| 寫入 | O(1) | O(1) | O(log K) |
+| 查詢 | O(n) | O(k log k) ≈ O(1) | O(K log K) |
+| 空間 | O(n) | O(k) | O(K) |
+| 實作難度 | 低 | 中 | 高 |
+| 適合場景 | n 極小、需保留原始序列 | k 固定、高頻查詢 | k 極大、只需 top-K |
+
+**結論：** 方案 B（HashMap）在 FOCO 的實際情境中同時滿足「寫入快、查詢快、記憶體省」三個目標，且已在 `gameStore.ts` 中實作並串接至 Stats 頁面。
+
+---
+
+### B. 深度分析：DISC 風格分析演算法
+
+#### 問題定義
+
+FOCO 需要根據 App 自動追蹤的行為數據推算使用者的 DISC 做事風格類型。輸入是四種原始行為數據，輸出是 D / I / S / C 或邊界型標籤。
+
+---
+
+#### Step 1：輸入特徵設計
+
+App 追蹤四種原始數據，轉換為三個衍生特徵：
+
+| 原始數據 | 衍生特徵 | 意涵 |
+|----------|----------|------|
+| `pause_count`（暫停次數） | `focus_score = focus_time / (pause + switch + 1)` | 專注深度 |
+| `switch_count`（切出次數） | `distraction_rate = switch_count / focus_time` | 分心頻率 |
+| `avg_switch_duration`（切出時長） | `recovery_speed = 1 / avg_switch_duration` | 自我控制力 |
+| `total_focus_time`（總專注時間） | `pause_ratio = pause / (pause + switch + 1)` | 暫停比例 |
+
+---
+
+#### Step 2：DISC 四向度行為對應
+
+| DISC 類型 | 行為意涵 | 對應指標 |
+|-----------|----------|----------|
+| D（支配型） | 做事節奏快、不拖延 | `focus_score` 高、`total_focus_time` 長 |
+| I（影響型） | 容易受環境影響、切出後久才回來 | `distraction_rate` 高、`recovery_speed` 慢 |
+| S（穩健型） | 暫停多但切出少、節奏穩定 | `pause_count` 高、`switch_count` 低 |
+| C（分析型） | 切出少、recovery 快、專注深 | `switch_count` 低、`recovery_speed` 快、`focus_score` 高 |
+
+---
+
+#### 演算法一：Rule-based（if-else tree）
+
+依閾值逐層判斷類型，規則明確但邊界條件多時直接失效。
+
+```
+if focus_score > 8 and focus_time > 60:
+    if recovery_speed > 0.1  →  "C"
+    else                      →  "D"
+elif pause > switch * 2       →  "S"
+elif distraction > 0.2        →  "I"
+else                          →  "未定義"  ← 問題所在
+```
+
+| 操作 | 時間複雜度 | 說明 |
+|------|-----------|------|
+| 分類 | O(1) | if-else tree，常數層數 |
+| 邊界型處理 | 無法處理 | 直接回傳「未定義」 |
+| 累積 session | 閾值難調 | 單次異常值影響大 |
+
+---
+
+#### 演算法二：Weighted Score（Score Vector + Priority Queue）✅
+
+每個指標對四種類型貢獻不同權重，用 Priority Queue 取最高分；差距小則輸出邊界型。
+
+```
+scores[D] += focus_score    × 1.5
+scores[I] += distraction    × 2.0
+scores[S] += pause_ratio    × 2.0
+scores[C] += recovery_speed × 2.0
+priority_queue → top2 → 差距 < 1.0 → "D偏I" 等邊界型
+```
+
+| 操作 | 時間複雜度 | 說明 |
+|------|-----------|------|
+| 分類 | O(m log m) ≈ O(1) | m=4 固定 |
+| 邊界型處理 | 自然產生 | 分數差距決定是否為邊界型 |
+| 累積 session | Sliding Window 穩健 | 連續分數對噪音有緩衝 |
+
+---
+
+#### 跨 session 穩定性驗證
+
+驗證方式：不依賴問卷主觀自評，改用「同一使用者跨多次 session 的分類結果是否一致」來衡量演算法品質。資料結構採用 deque 實作的 Sliding Window，維護最近 7 次 session。
+
+```cpp
+deque<SessionData> window;  // 最近 7 次
+void update(SessionData s) {
+    window.push_back(s);
+    if (window.size() > 7) window.pop_front();
+}
+stability = count(same_label) / total_sessions
+```
+
+| 演算法 | 跨 session 穩定性 | 原因 |
+|--------|------------------|------|
+| Rule-based | stability ≈ 0.6 | 單次異常 session 直接導致「未定義」 |
+| Weighted Score | stability ≈ 0.9 | 異常值只影響分數大小，不影響排序 |
+
+---
+
+#### n=8 實測覆蓋率
+
+| 受測者 | Rule-based 結果 | Weighted Score 結果 | 預測信心（自評） |
+|--------|----------------|---------------------|-----------------|
+| R1 | I偏S（有規則） | I偏S | 很高 |
+| R2 | C偏D（有規則） | C偏D | 還可以 |
+| R3 | C偏D（有規則） | C偏D | 還可以 |
+| R4 | **未定義**（全像） | I偏S | 很高 |
+| R5 | I偏S（有規則） | I偏S | 還可以 |
+| R6 | **未定義** | S偏C | 很高 |
+| R7 | **未定義**（全不像） | S型 | 還可以 |
+| R8 | **未定義** | S偏I | 還可以 |
+
+Rule-based 對 8 筆中有 4 筆（R4/R6/R7/R8）無法分類；Weighted Score 全部都能給出結果，且自然對應受測者的信心分布。
+
+---
+
+#### 兩種演算法總比較
+
+| 面向 | Rule-based | Weighted Score ✅ |
+|------|-----------|------------------|
+| 資料結構 | Decision Table / if-else tree | Score Vector + Priority Queue |
+| 單次複雜度 | O(1) | O(m log m) ≈ O(1) |
+| 覆蓋率（n=8） | 4/8 未定義 | 8/8 有輸出 |
+| 跨 session 穩定性 | ≈ 0.6（噪音敏感） | ≈ 0.9（分數緩衝） |
+| 邊界型輸出 | 無法輸出 | 自然產生（D偏I 等） |
+| 擴充新指標 | 需重寫規則樹 | 加一行權重即可 |
+| 可解釋性 | 高（規則透明） | 中（需解釋權重設計） |
+
+---
+
+### 其他模組的結構選擇
+
+| 模組 | 資料結構 | 理由 |
+|------|----------|------|
+| 寵物狀態（Pet） | 單一 Object | 全 App 只有一隻寵物，key 存取直觀，partial update 即可 |
+| 計時器（Timer） | 單一 Object + FSM | 同一時間只有一個計時器，不需佇列；四階段 FSM 管理轉移 |
+| 任務紀錄（Missions） | Array of Objects | 任務需依序渲染，新任務 unshift；未來可改 HashMap 以 id 為 key |
+| Session 事件（session_events） | Append-only Table | 事件時間軸只需追加，查詢依 session_id 過濾 |
+
+---
+
+## 驗證實驗
+
+### 實驗設計
+
+為驗證 FOCO 的三個核心假說，邀請 8 位大學生實際試用 App，試用結束後填寫同一份問卷（Google Form，A/B/C 三區段），評估真實使用感受。目標不是追求統計顯著性，而是找出方向與潛在失效點。
+
+| 項目 | 說明 |
+|------|------|
+| 樣本數 | n = 8，大學生 |
+| 方式 | 試用 App → Google Form 匿名填答 |
+| 問卷結構 | A：假說一（介面減少分心）；B：假說二（行為映射風格）；C：假說三（養成提升留存） |
+| 驗證類型 | 小樣本探索性，找出方向與失效點 |
+
+---
+
+### 三個假說
+
+| 假說 | 內容 |
+|------|------|
+| 假說一 | 若介面強制停留在專注頁，每 25 分鐘內的切換次數將比平時減少 |
+| 假說二 | 若系統記錄行為數據，能反映使用者真實做事風格，與 DISC 自評結果吻合 |
+| 假說三 | 若加入寵物養成機制，每日主動開啟 App 的意願將高於純計時器版本 |
+
+---
+
+### 受測者完整數據
+
+| | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 |
+|---|---|---|---|---|---|---|---|---|
+| **A1 切換次數** | 0–1 | 4–6 | 7以上 | 2–3 | 2–3 | 2–3 | 2–3 | 2–3 |
+| **A2 分心原因** | 通知 | 通知＋查東西＋疲累 | 查東西＋疲累＋無意識 | 通知＋查東西 | 通知＋查東西＋疲累 | 通知＋查東西＋疲累＋無意識 | 通知＋查東西＋疲累 | 通知＋查東西＋疲累 |
+| **A3 試用後效果** | 明顯減少 | 完全沒差 | 明顯減少 | 明顯減少 | 明顯減少 | 完全沒差 | 稍微減少 | 稍微減少 |
+| **A4 蕃茄鐘經驗** | 有但放棄 | 沒有 | 有但放棄 | 現在還在用 | 現在還在用 | 有但放棄 | 沒有 | 有但放棄 |
+| **B1 先想再行動** | 不像 | 像 | 像 | 像 | 像 | 像 | 不像 | 像 |
+| **B1 節奏快** | 像 | 像 | 像 | 像 | 像 | 不像 | 不像 | 不像 |
+| **B1 在意過程** | 像 | 不像 | 不像 | 像 | 像 | 像 | 不像 | 像 |
+| **B1 受環境影響** | 像 | 像 | 像 | 像 | 像 | 像 | 像 | 像 |
+| **B2 最佳時段** | 下午 | 深夜 | 晚上 | 深夜 | 深夜 | 早上 | 早上 | 晚上 |
+| **B3 分段習慣** | 一口氣 | 一口氣 | 看任務 | 一口氣 | 看任務 | 一口氣 | 看任務 | 看任務 |
+| **B4 預測信心** | 很高 | 還可以 | 還可以 | 很高 | 還可以 | 很高 | 還可以 | 還可以 |
+| **C1 養成經驗** | 明顯有效 | 有一點 | 有一點 | 沒試過 | 明顯有效 | 明顯有效 | 有一點 | 沒興趣 |
+| **C2 純計時器持續** | 需提醒 | 很難忘記 | 需提醒 | 需提醒 | 習慣後自然用 | 不會用太無聊 | 需提醒 | 很難忘記 |
+| **C3 寵物效果** | 更願意開 | 只有一點加分 | 只有一點加分 | 只有一點加分 | 更願意開 | 更願意開 | 只有一點加分 | 沒差 |
+| **C4 期待感受** | 成就＋陪伴＋輕鬆＋收集 | 成就＋陪伴 | 成就＋陪伴＋輕鬆 | 只有成就 | 成就＋陪伴＋輕鬆＋收集 | 只有陪伴 | 成就＋輕鬆 | 只有收集 |
+
+---
+
+### 假說一結果：介面能減少分心
+
+| 受測者 | 切換次數 | 試用後效果 | 蕃茄鐘經驗 |
+|--------|----------|-----------|-----------|
+| R1 | 0–1 次 | 明顯減少 | 有但放棄 |
+| R2 | 4–6 次 | 完全沒差 ✗ | 沒有 |
+| R3 | 7 次以上 | 明顯減少 | 有但放棄 |
+| R4 | 2–3 次 | 明顯減少 | 現在還在用 |
+| R5 | 2–3 次 | 明顯減少 | 現在還在用 |
+| R6 | 2–3 次 | 完全沒差 ✗ | 有但放棄 |
+| R7 | 2–3 次 | 稍微減少 | 沒有 |
+| R8 | 2–3 次 | 稍微減少 | 有但放棄 |
+
+**結論：** 6/8 有效果（明顯＋稍微）。失效的 R2 與 R6 共同點不是分心次數，而是對計時工具的根本排斥——R2 從未建立工具習慣，R6 曾試但主動放棄。分心次數不是關鍵，工具接受度才是假說一真正的邊界條件。
+
+> **結論標籤：✅ 初步成立，R2/R6 為失效案例，失效條件明確**
+
+---
+
+### 假說二結果：行為映射 DISC 風格
+
+| 受測者 | DISC 推估 | 預測信心（自評） |
+|--------|-----------|----------------|
+| R1 | I 偏 S | 很高 |
+| R2 | C 偏 D | 還可以 |
+| R3 | C 偏 D | 還可以 |
+| R4 | I 偏 S | 很高 |
+| R5 | I 偏 S | 還可以 |
+| R6 | S 偏 C | 很高 |
+| R7 | S 型 | 還可以 |
+| R8 | S 偏 I | 還可以 |
+
+**結論：** 8 筆數據呈現四種可辨識的 DISC 類型，代表行為數據確實具區辨力。I偏S 型用戶預測信心高；S 型變體（R6–R8）特徵最分散，是模型需補強的邊界案例。
+
+> **結論標籤：✅ 成立，S 型變體需補強**
+
+---
+
+### 假說三結果：養成提升留存
+
+| 受測者 | 養成歷史 | 試用後意願 | 期待感受 |
+|--------|----------|-----------|----------|
+| R1 | 明顯有效 | 更願意每天開 | 成就＋陪伴＋輕鬆＋收集 |
+| R2 | 有一點 | 只有一點加分 | 成就＋陪伴 |
+| R3 | 有一點 | 只有一點加分 | 成就＋陪伴＋輕鬆 |
+| R4 | 沒試過 | 只有一點加分 | 只有成就 |
+| R5 | 明顯有效 | 更願意每天開 | 成就＋陪伴＋輕鬆＋收集 |
+| R6 | 明顯有效 | 更願意每天開 | 只有陪伴 |
+| R7 | 有一點 | 只有一點加分 | 成就＋輕鬆 |
+| R8 | 沒興趣 | 沒差 ✗ | 只有收集慾（矛盾點） |
+
+**R8 矛盾點：** 對養成沒興趣、寵物沒差，但期待感受卻選了收集慾——說明部分用戶對遊戲化有潛在興趣，但現有設計門檻太高尚未激活。R6 是最特別的案例：排斥計時介面，卻因陪伴感被寵物機制拉回，說明寵物機制的留存效果可來自完全不同的心理動機。
+
+> **結論標籤：⚠️ 條件成立，3/8 強支持，動機路徑分歧**
+
+---
+
+### 四種用戶原型
+
+| 原型 | 代表 | 特徵 | FOCO 對他有效嗎 |
+|------|------|------|----------------|
+| 輕度分心／已有工具習慣 | R2、R5 | 分心少、用過計時工具 | ✅ 高度有效 |
+| 自覺分心型 | R1 | 知道自己怎麼分心 | ✅ 有效 |
+| 無意識重度型 | R4 | 分心多但信任工具 | ⚠️ 有潛力，需引導 |
+| 工具抵抗型 | R3 | 分心多且不信任機制 | ❌ 現有設計失效 |
+
+---
+
+### 三假說綜合結論
+
+| 假說 | 結論 | 關鍵條件 / 失效點 |
+|------|------|-----------------|
+| 介面減少分心 | ✅ 初步成立 | 失效條件：對計時工具有根本排斥 |
+| 行為映射風格 | ✅ 成立 | S 型變體特徵分散，需更細緻分類題目 |
+| 養成提升留存 | ⚠️ 條件成立 | 對有遊戲化歷史者有效；R8 顯示潛在需求未被激活 |
+
+最反直覺的發現：R6 排斥介面卻因陪伴感被寵物機制拉回；R8 說對養成沒興趣但選了收集慾。FOCO 的目標用戶不是「已自律的人」，而是「想改變但還沒找到入口的人」。
+
+---
+
+### 如果重做 & 下一步
+
+1. 加入試用前基準測量，做真正的前後對照（而非只靠回憶）
+2. 針對 R2/R6 工具抵觸型，以陪伴感作為進入點而非計時功能
+3. 針對 R8 矛盾型，設計更低門檻的收集機制，激活潛在遊戲化興趣
+4. S 型用戶需更細緻的 DISC 分類題目，提升模型準確率
+
+**FOCO 下一版核心方向**
+
+R5 是理想目標用戶原型（習慣後自然持續）。下一步是設計從 R8 → R6 → R5 的漸進路徑，讓不同入口的用戶都能找到留下來的理由。
+
+---
+
+## References
+
+\[1\] Business of Apps. (2025). *Productivity App Revenue and Usage Statistics*.
+https://www.businessofapps.com/data/productivity-app-market/
+
+\[2\] DataIntelo / Growth Market Reports. (2024). *Pomodoro Apps Market Research Report 2033*.
+https://dataintelo.com/report/pomodoro-apps-market
+
+\[3\] Harmony Healthcare IT. (2024). *American Phone Usage & Screen Time Statistics*.
+https://www.harmonyhit.com/phone-screen-time-statistics/
+
+\[4\] Speakwise. (2026). *Attention Span Statistics: Focus Duration, Digital Shrinkage, and Cognitive Decline*.
+https://speakwiseapp.com/blog/attention-span-statistics
+
+\[5\] Siebers, T., Beyens, I., & Valkenburg, P. M. (2024). The effects of fragmented and sticky smartphone use on distraction and task delay. *Mobile Media & Communication*.
+https://journals.sagepub.com/doi/10.1177/20501579231193941
+
+\[6\] Amra & Elma. (2026). *Top 20 User Attention Span Statistics*.
+https://www.amraandelma.com/user-attention-span-statistics/
 ---
 
 ## References
