@@ -54,8 +54,15 @@ function calcQualityScore(params: {
   return Math.max(0, Math.min(100, score))
 }
 
-// ── DISC 判斷（quality score 作為輔助維度）──────────────────
-function calcFocusType(
+// ── DISC 判斷 ────────────────────────────────────────────────
+//
+// 兩種演算法並存；預設使用方法 B（加權評分）。
+// 切換策略只需改 calcFocusType 的實作。
+
+// 方法 A：規則優先梯（Rule-based Priority Ladder）
+// 依固定優先序逐一比對條件，第一個符合的即為結果。
+// 邏輯透明易解釋，但邊界 session 容易被單一條件決定。
+function calcFocusTypeRuleBased(
   completed: boolean,
   pauseCount: number,
   leftAppCount: number,
@@ -67,6 +74,74 @@ function calcFocusType(
   if (completed && interrupts <= 3)     return 'dominance'
   if (!completed && interrupts <= 2)    return 'steadiness'
   return 'influence'
+}
+
+// 方法 B：加權評分（Weighted Scoring）
+// 對四種類型各自計算分數，取最高者。
+// 行為訊號更細緻；邊界 session 不會硬切；同分時 C > D > S > I。
+function calcDiscScores(
+  completed: boolean,
+  pauseCount: number,
+  leftAppCount: number,
+  qualityScore: number,
+  earlyStop: boolean,
+): Record<string, number> {
+  const totalInterrupts = pauseCount + leftAppCount
+
+  // Dominance: 完成任務、低中斷、高意志力
+  let d = 0
+  if (completed) d += 35
+  d += qualityScore >= 60 ? 20 : Math.round(qualityScore * 0.3)
+  d += totalInterrupts <= 3 ? 30 : Math.max(0, 30 - (totalInterrupts - 3) * 6)
+  if (!earlyStop) d += 5
+
+  // Influence: 切出 App 多、容易分心、未完成
+  let i = 0
+  i += leftAppCount >= 3 ? 35 : leftAppCount * 10
+  if (!completed) i += 20
+  if (qualityScore < 55) i += 20
+  if (pauseCount >= 2) i += 15
+
+  // Steadiness: 主動暫停而非切出 App、未完成但沒放棄
+  let s = 0
+  if (!completed && totalInterrupts <= 2) s += 40
+  if (pauseCount >= leftAppCount) s += 25
+  if (qualityScore >= 35 && qualityScore < 75) s += 20
+  if (!earlyStop) s += 15
+
+  // Conscientiousness: 完成任務、高品質、幾乎零中斷
+  let c = 0
+  if (completed) c += 30
+  if (qualityScore >= 75) c += 45
+  else if (qualityScore >= 60) c += 15
+  if (totalInterrupts <= 1) c += 25
+  else if (totalInterrupts <= 3) c += 10
+
+  return { dominance: d, influence: i, steadiness: s, conscientiousness: c }
+}
+
+function calcFocusTypeWeighted(
+  completed: boolean,
+  pauseCount: number,
+  leftAppCount: number,
+  qualityScore: number,
+  earlyStop: boolean,
+): string {
+  const scores = calcDiscScores(completed, pauseCount, leftAppCount, qualityScore, earlyStop)
+  // 同分時優先序：C > D > S > I
+  const order = ['conscientiousness', 'dominance', 'steadiness', 'influence'] as const
+  return order.reduce((best, type) => (scores[type] > scores[best] ? type : best))
+}
+
+// 預設採用方法 B；改這裡即可全局切換策略
+function calcFocusType(
+  completed: boolean,
+  pauseCount: number,
+  leftAppCount: number,
+  qualityScore: number,
+  earlyStop: boolean = false,
+): string {
+  return calcFocusTypeWeighted(completed, pauseCount, leftAppCount, qualityScore, earlyStop)
 }
 
 // ── XP 計算（quality score 作為乘數 0.5x～1.5x）─────────────
@@ -202,7 +277,7 @@ serve(async (req) => {
       leftAppTotalSec: left_app_total_sec,
     })
 
-    const focusType = calcFocusType(effectiveCompleted, pause_count, left_app_count, qualityScore)
+    const focusType = calcFocusType(effectiveCompleted, pause_count, left_app_count, qualityScore, early_stop)
 
     const xpGained = calcXP({
       actualDuration: actual_duration,

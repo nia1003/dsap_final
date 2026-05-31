@@ -2,6 +2,10 @@
 
 專注即成長 — 你的專注讓寵物升級。
 
+## Demo 影片
+
+[![FOCO Demo](https://img.youtube.com/vi/7hh-4Wnyvno/0.jpg)](https://youtu.be/7hh-4Wnyvno)
+
 ## 專案簡介
 
 FOCO 是一款以電子寵物為核心動力的專注 App。每次完成一段計時專注，寵物就會獲得 XP 並升級。讓「去做事」本身變成一種養成遊戲。
